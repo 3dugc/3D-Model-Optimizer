@@ -3,7 +3,6 @@ services:
     image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
     networks:
       - proxy
-      - internal
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
@@ -49,6 +48,4 @@ volumes:
 
 networks:
   proxy:
-    external: true
-  internal:
     external: true
