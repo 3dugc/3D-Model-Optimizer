@@ -22,7 +22,23 @@
 - [ ] 准备客户回调密钥管理方式。
 - [ ] 确认所有永久密钥只进入密钥管理或部署环境变量，不写入仓库。
 
-## 3. Control API 环境变量
+## 3. 镜像仓库与 CI
+
+- [x] GitHub Actions 构建 Docker 镜像。
+- [x] Portainer 入口栈使用腾讯云镜像仓库镜像。
+- [ ] 在腾讯云镜像仓库创建 `plugins/3d-model-optimizer`。
+- [ ] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_USERNAME`。
+- [ ] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
+- [ ] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
+- [ ] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
+
+默认入口镜像：
+
+```text
+hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:codex-tencent-cloud-elastic-optimizer
+```
+
+## 4. Control API 环境变量
 
 本仓库已提供 `.env.cloud.example`，部署时复制为真实环境变量并替换密钥。
 
@@ -59,7 +75,7 @@ JOB_TIMEOUT_SECONDS=1800
 DEFAULT_TASK_TYPE=model.optimize
 ```
 
-## 4. Worker 环境变量
+## 5. Worker 环境变量
 
 ```text
 WORKER_ID=
@@ -83,7 +99,7 @@ CALLBACK_TIMEOUT_SECONDS=10
 CALLBACK_MAX_ATTEMPTS=6
 ```
 
-## 5. 弹性计算
+## 6. 弹性计算
 
 - [ ] 构建并推送 Docker Worker 镜像。
 - [ ] 本地联调用 `docker compose -f docker-compose.cloud.yml up --build` 验证 API + Worker。
@@ -93,7 +109,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [ ] 配置缩容 drain 时间，让 Worker 停止领取新任务。
 - [ ] 验证 Spot 回收或强杀 Worker 后任务会重新投递。
 
-## 6. API 验收
+## 7. API 验收
 
 - [ ] `POST /api/v1/jobs` 创建 `model.optimize` 任务并返回上传授权。
 - [ ] Job 记录包含 `taskType`，队列消息也包含 `taskType`。
@@ -105,7 +121,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [ ] `GET /api/v1/jobs/:jobId/result-url` 返回短期下载 URL。
 - [ ] 客户回调带 HMAC 签名且可被客户系统验签。
 
-## 7. 支付验收
+## 8. 支付验收
 
 - [ ] 创建订单可返回微信 Native `code_url`。
 - [ ] Web UI 可把 `code_url` 渲染成二维码。
@@ -114,7 +130,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [ ] 订单 paid 后关联 Job 自动进入 queued。
 - [ ] 未支付、过期、取消订单不会触发处理。
 
-## 8. 监控告警
+## 9. 监控告警
 
 - [ ] 队列可见消息数告警。
 - [ ] 按 task type 统计队列积压、失败率和平均处理时长。

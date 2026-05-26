@@ -9,8 +9,10 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_NAME: ${{ github.repository }}
+  TENCENT_REGISTRY: hkccr.ccs.tencentyun.com
+  TENCENT_IMAGE_NAME: plugins/3d-model-optimizer
 
 jobs:
   build:
@@ -25,19 +27,41 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
+      - name: Check Tencent registry credentials
+        id: tencent-registry
+        if: github.event_name != 'pull_request'
+        env:
+          TENCENT_REGISTRY_USERNAME: ${{ secrets.TENCENT_REGISTRY_USERNAME }}
+          TENCENT_REGISTRY_PASSWORD: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+        run: |
+          if [ -n "$TENCENT_REGISTRY_USERNAME" ] && [ -n "$TENCENT_REGISTRY_PASSWORD" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tencent registry push skipped because TENCENT_REGISTRY_USERNAME/TENCENT_REGISTRY_PASSWORD are not configured."
+          fi
+
+      - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      - name: Log in to Tencent Container Registry
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.TENCENT_REGISTRY }}
+          username: ${{ secrets.TENCENT_REGISTRY_USERNAME }}
+          password: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+
+      - name: Extract GitHub metadata
+        id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -45,12 +69,35 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      - name: Build and push
+      - name: Extract Tencent metadata
+        id: meta-tencent
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.TENCENT_REGISTRY }}/${{ env.TENCENT_IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push GitHub image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-ghcr.outputs.tags }}
+          labels: ${{ steps.meta-ghcr.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Tencent image
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta-tencent.outputs.tags }}
+          labels: ${{ steps.meta-tencent.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

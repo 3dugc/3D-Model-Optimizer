@@ -1,9 +1,6 @@
 services:
   optimizer-api:
-    image: model-optimizer-entry:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
     networks:
       - proxy
       - internal
