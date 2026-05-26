@@ -35,8 +35,20 @@ export interface ServerConfig {
   resultDir: string;
   /** Cloud async runtime configuration */
   cloud: CloudRuntimeConfig;
+  /** Shared database configuration */
+  database: DatabaseConfig;
   /** Billing and payment configuration */
   billing: BillingConfig;
+}
+
+/**
+ * Shared database configuration.
+ */
+export interface DatabaseConfig {
+  url?: string;
+  stateStoreProvider: 'local' | 'postgres';
+  ssl: boolean;
+  sslRejectUnauthorized: boolean;
 }
 
 /**
@@ -105,6 +117,23 @@ function parseCorsOrigins(value: string | undefined): string | string[] {
   return value.split(',').map((origin) => origin.trim());
 }
 
+function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
+  if (!value) return defaultValue;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function parseStateStoreProvider(): 'local' | 'postgres' {
+  if (
+    process.env.STATE_STORE_PROVIDER === 'postgres' ||
+    process.env.JOB_STORE_PROVIDER === 'postgres' ||
+    process.env.ORDER_STORE_PROVIDER === 'postgres' ||
+    process.env.DATABASE_URL
+  ) {
+    return 'postgres';
+  }
+  return 'local';
+}
+
 /**
  * Server configuration loaded from environment variables.
  */
@@ -156,6 +185,14 @@ export const config: ServerConfig = {
     workerHeartbeatIntervalMs: parsePositiveNumber(process.env.WORKER_HEARTBEAT_INTERVAL_MS, 10 * 1000),
     callbackTimeoutSeconds: parsePositiveNumber(process.env.CALLBACK_TIMEOUT_SECONDS, 10),
     callbackMaxAttempts: parsePositiveNumber(process.env.CALLBACK_MAX_ATTEMPTS, 6),
+  },
+
+  // Shared state store
+  database: {
+    url: process.env.DATABASE_URL,
+    stateStoreProvider: parseStateStoreProvider(),
+    ssl: parseBoolean(process.env.DATABASE_SSL, false),
+    sslRejectUnauthorized: parseBoolean(process.env.DATABASE_SSL_REJECT_UNAUTHORIZED, true),
   },
 
   // Billing settings

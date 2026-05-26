@@ -11,6 +11,7 @@
 - [x] 配置死信队列：`optimizer-jobs-dlq`，并关联主队列。
 - [x] 记录 CMQ API 地址：公网 `https://cmq-nj.public.tencenttdmq.com`；腾讯云内网 `http://nj.mqadapter.cmq.tencentyun.com`。
 - [ ] 创建数据库实例，用于 tenants、jobs、orders、workers、callbacks。
+- [x] 代码支持 Postgres 共享状态库，自动建表 `optimizer_jobs`、`optimizer_orders`、`optimizer_workers`、`optimizer_callback_deliveries`。
 - [ ] 创建 CLS 日志主题和必要监控告警。
 
 ## 2. 权限与密钥
@@ -50,6 +51,8 @@ PORT=3000
 API_BASE_URL=https://optimizer.example.com
 
 DATABASE_URL=
+STATE_STORE_PROVIDER=postgres
+DATABASE_SSL=false
 
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
@@ -88,6 +91,8 @@ WORKER_HEARTBEAT_INTERVAL_MS=10000
 WORKER_JOB_TIMEOUT_MS=1800000
 
 DATABASE_URL=
+STATE_STORE_PROVIDER=postgres
+DATABASE_SSL=false
 
 QUEUE_PROVIDER=tdmq-cmq
 QUEUE_ENDPOINT=http://nj.mqadapter.cmq.tencentyun.com

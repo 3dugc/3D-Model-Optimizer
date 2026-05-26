@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: optimizer
+      POSTGRES_USER: optimizer
+      POSTGRES_PASSWORD: optimizer
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U optimizer -d optimizer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   optimizer-api:
     build: .
     command: node dist/index.js
@@ -7,6 +23,8 @@ services:
     environment:
       CLOUD_PROVIDER: local
       QUEUE_PROVIDER: local
+      STATE_STORE_PROVIDER: postgres
+      DATABASE_URL: postgres://optimizer:optimizer@postgres:5432/optimizer
       BILLING_MODE: mock
       HOST: 0.0.0.0
     ports:
@@ -14,6 +32,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./temp:/app/temp
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   optimizer-worker:
     build: .
@@ -23,6 +44,8 @@ services:
     environment:
       CLOUD_PROVIDER: local
       QUEUE_PROVIDER: local
+      STATE_STORE_PROVIDER: postgres
+      DATABASE_URL: postgres://optimizer:optimizer@postgres:5432/optimizer
       BILLING_MODE: mock
       WORKER_ID: worker-compose-1
       WORKER_CONCURRENCY: 1
@@ -30,4 +53,10 @@ services:
       - ./data:/app/data
       - ./temp:/app/temp
     depends_on:
-      - optimizer-api
+      postgres:
+        condition: service_healthy
+      optimizer-api:
+        condition: service_started
+
+volumes:
+  postgres-data:

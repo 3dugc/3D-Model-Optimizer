@@ -12,6 +12,7 @@ import { taskRegistry, type TaskRegistry } from '../tasks/registry';
 import { sendJobCallback } from '../callbacks/callback-service';
 import logger from '../utils/logger';
 import type { WorkerHeartbeat, WorkerRuntimeConfig } from './types';
+import { createWorkerHeartbeatStore, type WorkerHeartbeatStore } from './worker-store';
 
 function objectFromJobInput(job: CloudJob): CosObjectRef {
   return {
@@ -61,7 +62,8 @@ export class CloudWorker {
     private readonly queue: QueueProvider = createQueueProvider(),
     private readonly storage: ObjectStorageProvider = createObjectStorageProvider(),
     private readonly store: JobStore = jobStore,
-    private readonly registry: TaskRegistry = taskRegistry
+    private readonly registry: TaskRegistry = taskRegistry,
+    private readonly heartbeatStore: WorkerHeartbeatStore = createWorkerHeartbeatStore()
   ) {}
 
   async start(): Promise<void> {
@@ -190,9 +192,7 @@ export class CloudWorker {
       draining: this.draining,
       timestamp: new Date().toISOString(),
     };
-    const filePath = path.join('data/cloud/workers', `${this.runtime.workerId}.json`);
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, JSON.stringify(heartbeat, null, 2));
+    await this.heartbeatStore.writeHeartbeat(heartbeat);
   }
 
   private installSignalHandlers(): void {
