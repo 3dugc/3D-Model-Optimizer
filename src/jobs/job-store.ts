@@ -1,9 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { QueryResultRow } from 'pg';
 import { config } from '../config';
 import type { ClaimJobInput, CloudJob, CloudJobStatus } from './types';
 import { assertJobStatusTransition } from './state-machine';
+import { ensureMySqlSchema, getMySqlPool, mysqlDateTime, withMySqlTransaction, type MySqlQueryable } from '../database/mysql';
 import { ensurePostgresSchema, getPostgresPool, withPostgresTransaction, type SqlQueryable } from '../database/postgres';
 
 export interface JobStore {
@@ -363,8 +365,217 @@ export class PostgresJobStore implements JobStore {
   }
 }
 
+interface MySqlJobRow extends RowDataPacket {
+  job_json: CloudJob | string;
+}
+
+function mysqlJobFromRow(row: MySqlJobRow): CloudJob {
+  return typeof row.job_json === 'string' ? (JSON.parse(row.job_json) as CloudJob) : row.job_json;
+}
+
+async function updateMySqlJobRow(client: MySqlQueryable, job: CloudJob): Promise<CloudJob> {
+  const [result] = await client.execute<ResultSetHeader>(
+    `
+      UPDATE optimizer_jobs SET
+        tenant_id = ?,
+        external_job_id = ?,
+        idempotency_key = ?,
+        task_type = ?,
+        status = ?,
+        worker_id = ?,
+        attempts = ?,
+        max_attempts = ?,
+        created_at = ?,
+        uploaded_at = ?,
+        queued_at = ?,
+        started_at = ?,
+        completed_at = ?,
+        job_json = ?,
+        updated_at = CURRENT_TIMESTAMP(3)
+      WHERE id = ?
+    `,
+    [
+      job.tenantId,
+      job.externalJobId || null,
+      job.idempotencyKey || null,
+      job.taskType,
+      job.status,
+      job.workerId || null,
+      job.attempts,
+      job.maxAttempts,
+      mysqlDateTime(job.createdAt),
+      mysqlDateTime(job.uploadedAt),
+      mysqlDateTime(job.queuedAt),
+      mysqlDateTime(job.startedAt),
+      mysqlDateTime(job.completedAt),
+      JSON.stringify(job),
+      job.id,
+    ]
+  );
+  if (result.affectedRows === 0) {
+    throw new Error(`Job not found: ${job.id}`);
+  }
+  return job;
+}
+
+export class MySqlJobStore implements JobStore {
+  constructor(private readonly client: MySqlQueryable = getMySqlPool()) {}
+
+  async create(job: CloudJob): Promise<CloudJob> {
+    await ensureMySqlSchema(this.client);
+    try {
+      await this.client.execute(
+        `
+          INSERT INTO optimizer_jobs (
+            id, tenant_id, external_job_id, idempotency_key, task_type, status,
+            worker_id, attempts, max_attempts, created_at, uploaded_at, queued_at,
+            started_at, completed_at, job_json, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))
+        `,
+        [
+          job.id,
+          job.tenantId,
+          job.externalJobId || null,
+          job.idempotencyKey || null,
+          job.taskType,
+          job.status,
+          job.workerId || null,
+          job.attempts,
+          job.maxAttempts,
+          mysqlDateTime(job.createdAt),
+          mysqlDateTime(job.uploadedAt),
+          mysqlDateTime(job.queuedAt),
+          mysqlDateTime(job.startedAt),
+          mysqlDateTime(job.completedAt),
+          JSON.stringify(job),
+        ]
+      );
+    } catch (error) {
+      if ((error as { code?: string; errno?: number }).code === 'ER_DUP_ENTRY') {
+        throw new Error(`Job already exists: ${job.id}`);
+      }
+      throw error;
+    }
+    return job;
+  }
+
+  async get(jobId: string): Promise<CloudJob | undefined> {
+    await ensureMySqlSchema(this.client);
+    const [rows] = await this.client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ?', [
+      jobId,
+    ]);
+    return rows[0] ? mysqlJobFromRow(rows[0]) : undefined;
+  }
+
+  async findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CloudJob | undefined> {
+    await ensureMySqlSchema(this.client);
+    const [rows] = await this.client.execute<MySqlJobRow[]>(
+      'SELECT job_json FROM optimizer_jobs WHERE tenant_id = ? AND idempotency_key = ?',
+      [tenantId, idempotencyKey]
+    );
+    return rows[0] ? mysqlJobFromRow(rows[0]) : undefined;
+  }
+
+  async update(jobId: string, updates: Partial<CloudJob>): Promise<CloudJob> {
+    return withMySqlTransaction(async (client) => {
+      const [rows] = await client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ? FOR UPDATE', [
+        jobId,
+      ]);
+      if (!rows[0]) {
+        throw new Error(`Job not found: ${jobId}`);
+      }
+      const updated = { ...mysqlJobFromRow(rows[0]), ...updates };
+      return updateMySqlJobRow(client, updated);
+    });
+  }
+
+  async transition(jobId: string, status: CloudJobStatus, updates: Partial<CloudJob> = {}): Promise<CloudJob> {
+    return withMySqlTransaction(async (client) => {
+      const [rows] = await client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ? FOR UPDATE', [
+        jobId,
+      ]);
+      if (!rows[0]) {
+        throw new Error(`Job not found: ${jobId}`);
+      }
+      const current = mysqlJobFromRow(rows[0]);
+      assertJobStatusTransition(current.status, status);
+      const updated = { ...current, ...updates, status };
+      return updateMySqlJobRow(client, updated);
+    });
+  }
+
+  async claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined> {
+    return withMySqlTransaction(async (client) => {
+      const now = input.now ?? new Date();
+      const nowIso = now.toISOString();
+      const [rows] = await client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ? FOR UPDATE', [
+        jobId,
+      ]);
+      if (!rows[0]) return undefined;
+
+      const current = mysqlJobFromRow(rows[0]);
+      if (current.status !== 'queued' && current.status !== 'retry_wait') return undefined;
+      if (current.status === 'retry_wait' && current.queuedAt && new Date(current.queuedAt).getTime() > now.getTime()) {
+        return undefined;
+      }
+
+      assertJobStatusTransition(current.status, 'processing');
+      const updated: CloudJob = {
+        ...current,
+        status: 'processing',
+        workerId: input.workerId,
+        attempts: current.attempts + 1,
+        startedAt: nowIso,
+      };
+      return updateMySqlJobRow(client, updated);
+    });
+  }
+
+  async claimNext(input: ClaimJobInput): Promise<CloudJob | undefined> {
+    return withMySqlTransaction(async (client) => {
+      const now = input.now ?? new Date();
+      const nowIso = now.toISOString();
+      const [rows] = await client.execute<MySqlJobRow[]>(
+        `
+          SELECT job_json
+          FROM optimizer_jobs
+          WHERE status = 'queued'
+            OR (status = 'retry_wait' AND (queued_at IS NULL OR queued_at <= ?))
+          ORDER BY COALESCE(queued_at, created_at), created_at
+          LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        `,
+        [mysqlDateTime(nowIso)]
+      );
+      if (!rows[0]) return undefined;
+
+      const current = mysqlJobFromRow(rows[0]);
+      assertJobStatusTransition(current.status, 'processing');
+      const updated: CloudJob = {
+        ...current,
+        status: 'processing',
+        workerId: input.workerId,
+        attempts: current.attempts + 1,
+        startedAt: nowIso,
+      };
+      return updateMySqlJobRow(client, updated);
+    });
+  }
+
+  async list(): Promise<CloudJob[]> {
+    await ensureMySqlSchema(this.client);
+    const [rows] = await this.client.execute<MySqlJobRow[]>(
+      'SELECT job_json FROM optimizer_jobs ORDER BY created_at DESC, id DESC'
+    );
+    return rows.map(mysqlJobFromRow);
+  }
+}
+
 export function createJobStore(): JobStore {
-  return config.database.stateStoreProvider === 'postgres' ? new PostgresJobStore() : new LocalJobStore();
+  if (config.database.stateStoreProvider === 'mysql') return new MySqlJobStore();
+  if (config.database.stateStoreProvider === 'postgres') return new PostgresJobStore();
+  return new LocalJobStore();
 }
 
 export const jobStore = createJobStore();

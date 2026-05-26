@@ -46,7 +46,7 @@ export interface ServerConfig {
  */
 export interface DatabaseConfig {
   url?: string;
-  stateStoreProvider: 'local' | 'postgres';
+  stateStoreProvider: 'local' | 'mysql' | 'postgres';
   ssl: boolean;
   sslRejectUnauthorized: boolean;
 }
@@ -122,15 +122,14 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
-function parseStateStoreProvider(): 'local' | 'postgres' {
-  if (
-    process.env.STATE_STORE_PROVIDER === 'postgres' ||
-    process.env.JOB_STORE_PROVIDER === 'postgres' ||
-    process.env.ORDER_STORE_PROVIDER === 'postgres' ||
-    process.env.DATABASE_URL
-  ) {
-    return 'postgres';
+function parseStateStoreProvider(): 'local' | 'mysql' | 'postgres' {
+  const configured =
+    process.env.STATE_STORE_PROVIDER || process.env.JOB_STORE_PROVIDER || process.env.ORDER_STORE_PROVIDER;
+  if (configured === 'local' || configured === 'mysql' || configured === 'postgres') return configured;
+  if (process.env.DATABASE_URL?.startsWith('mysql://') || process.env.DATABASE_URL?.startsWith('mysql2://')) {
+    return 'mysql';
   }
+  if (process.env.DATABASE_URL) return 'postgres';
   return 'local';
 }
 

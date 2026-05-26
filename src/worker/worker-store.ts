@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ResultSetHeader } from 'mysql2/promise';
 import { config } from '../config';
+import { ensureMySqlSchema, getMySqlPool, mysqlDateTime, type MySqlQueryable } from '../database/mysql';
 import { ensurePostgresSchema, getPostgresPool, type SqlQueryable } from '../database/postgres';
 import type { WorkerHeartbeat } from './types';
 
@@ -54,8 +56,44 @@ export class PostgresWorkerHeartbeatStore implements WorkerHeartbeatStore {
   }
 }
 
+export class MySqlWorkerHeartbeatStore implements WorkerHeartbeatStore {
+  constructor(private readonly client: MySqlQueryable = getMySqlPool()) {}
+
+  async writeHeartbeat(heartbeat: WorkerHeartbeat): Promise<void> {
+    await ensureMySqlSchema(this.client);
+    await this.client.execute<ResultSetHeader>(
+      `
+        INSERT INTO optimizer_workers (
+          id, instance_id, backend, status, slots_total, slots_busy,
+          draining, heartbeat_json, last_heartbeat, updated_at
+        )
+        VALUES (?, ?, 'docker', ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))
+        ON DUPLICATE KEY UPDATE
+          instance_id = VALUES(instance_id),
+          status = VALUES(status),
+          slots_total = VALUES(slots_total),
+          slots_busy = VALUES(slots_busy),
+          draining = VALUES(draining),
+          heartbeat_json = VALUES(heartbeat_json),
+          last_heartbeat = VALUES(last_heartbeat),
+          updated_at = CURRENT_TIMESTAMP(3)
+      `,
+      [
+        heartbeat.workerId,
+        heartbeat.instanceId,
+        heartbeat.status,
+        heartbeat.slotsTotal,
+        heartbeat.slotsBusy,
+        heartbeat.draining,
+        JSON.stringify(heartbeat),
+        mysqlDateTime(heartbeat.timestamp),
+      ]
+    );
+  }
+}
+
 export function createWorkerHeartbeatStore(): WorkerHeartbeatStore {
-  return config.database.stateStoreProvider === 'postgres'
-    ? new PostgresWorkerHeartbeatStore()
-    : new LocalWorkerHeartbeatStore();
+  if (config.database.stateStoreProvider === 'mysql') return new MySqlWorkerHeartbeatStore();
+  if (config.database.stateStoreProvider === 'postgres') return new PostgresWorkerHeartbeatStore();
+  return new LocalWorkerHeartbeatStore();
 }

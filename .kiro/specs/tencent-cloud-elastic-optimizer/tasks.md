@@ -29,8 +29,8 @@
   - [x] 4.2 实现 Job 状态机和非法状态转换保护
   - [x] 4.3 实现 Order 状态机和幂等支付更新
   - [x] 4.4 增加本地内存 repository 用于开发测试
-  - [x] 4.5 设计并实现 Postgres 数据库 migration
-  - [x] 4.6 实现 Postgres Job/Order 共享状态库
+  - [x] 4.5 设计并实现 MySQL/Postgres 数据库 migration
+  - [x] 4.6 实现 MySQL/Postgres Job/Order 共享状态库
   - _Requirements: 1.1-1.5, 1A.1-1A.7, 8.1-8.6, 9.3, 9.4_
 
 - [ ] 5. 新增异步任务 API
@@ -69,7 +69,7 @@
   - [x] 8.6 Worker 成功时上传结果和报告到 COS
   - [x] 8.7 Worker 失败时写入结构化错误
   - [x] 8.8 添加 worker Docker/Compose 示例
-  - [x] 8.9 Worker heartbeat 支持写入 Postgres 共享状态库
+  - [x] 8.9 Worker heartbeat 支持写入 MySQL/Postgres 共享状态库
   - _Requirements: 1A.1-1A.5, 4.1-4.6, 6.1-6.5, 10.1_
 
 - [ ] 9. 实现队列和调度

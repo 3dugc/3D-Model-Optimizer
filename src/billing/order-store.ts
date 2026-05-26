@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { QueryResultRow } from 'pg';
 import { config } from '../config';
+import { ensureMySqlSchema, getMySqlPool, mysqlDateTime, withMySqlTransaction, type MySqlQueryable } from '../database/mysql';
 import { ensurePostgresSchema, getPostgresPool, withPostgresTransaction, type SqlQueryable } from '../database/postgres';
 import type { BillingOrder, OrderStatus } from './types';
 
@@ -232,8 +234,154 @@ export class PostgresOrderStore implements OrderStore {
   }
 }
 
+interface MySqlOrderRow extends RowDataPacket {
+  order_json: BillingOrder | string;
+}
+
+function mysqlOrderFromRow(row: MySqlOrderRow): BillingOrder {
+  return typeof row.order_json === 'string' ? (JSON.parse(row.order_json) as BillingOrder) : row.order_json;
+}
+
+async function updateMySqlOrderRow(client: MySqlQueryable, order: BillingOrder): Promise<BillingOrder> {
+  const [result] = await client.execute<ResultSetHeader>(
+    `
+      UPDATE optimizer_orders SET
+        tenant_id = ?,
+        job_id = ?,
+        status = ?,
+        amount_cents = ?,
+        currency = ?,
+        provider = ?,
+        out_trade_no = ?,
+        transaction_id = ?,
+        code_url = ?,
+        expires_at = ?,
+        paid_at = ?,
+        order_json = ?,
+        created_at = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [
+      order.tenantId,
+      order.jobId || null,
+      order.status,
+      order.amountCents,
+      order.currency,
+      order.provider,
+      order.outTradeNo,
+      order.transactionId || null,
+      order.codeUrl || null,
+      mysqlDateTime(order.expiresAt),
+      mysqlDateTime(order.paidAt),
+      JSON.stringify(order),
+      mysqlDateTime(order.createdAt),
+      mysqlDateTime(order.updatedAt),
+      order.id,
+    ]
+  );
+  if (result.affectedRows === 0) {
+    throw new Error(`Order not found: ${order.id}`);
+  }
+  return order;
+}
+
+export class MySqlOrderStore implements OrderStore {
+  constructor(private readonly client: MySqlQueryable = getMySqlPool()) {}
+
+  async create(order: BillingOrder): Promise<BillingOrder> {
+    await ensureMySqlSchema(this.client);
+    try {
+      await this.client.execute(
+        `
+          INSERT INTO optimizer_orders (
+            id, tenant_id, job_id, status, amount_cents, currency, provider,
+            out_trade_no, transaction_id, code_url, expires_at, paid_at,
+            order_json, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          order.id,
+          order.tenantId,
+          order.jobId || null,
+          order.status,
+          order.amountCents,
+          order.currency,
+          order.provider,
+          order.outTradeNo,
+          order.transactionId || null,
+          order.codeUrl || null,
+          mysqlDateTime(order.expiresAt),
+          mysqlDateTime(order.paidAt),
+          JSON.stringify(order),
+          mysqlDateTime(order.createdAt),
+          mysqlDateTime(order.updatedAt),
+        ]
+      );
+    } catch (error) {
+      if ((error as { code?: string; errno?: number }).code === 'ER_DUP_ENTRY') {
+        throw new Error(`Order already exists: ${order.id}`);
+      }
+      throw error;
+    }
+    return order;
+  }
+
+  async get(orderId: string): Promise<BillingOrder | undefined> {
+    await ensureMySqlSchema(this.client);
+    const [rows] = await this.client.execute<MySqlOrderRow[]>('SELECT order_json FROM optimizer_orders WHERE id = ?', [
+      orderId,
+    ]);
+    return rows[0] ? mysqlOrderFromRow(rows[0]) : undefined;
+  }
+
+  async findByOutTradeNo(outTradeNo: string): Promise<BillingOrder | undefined> {
+    await ensureMySqlSchema(this.client);
+    const [rows] = await this.client.execute<MySqlOrderRow[]>(
+      'SELECT order_json FROM optimizer_orders WHERE out_trade_no = ?',
+      [outTradeNo]
+    );
+    return rows[0] ? mysqlOrderFromRow(rows[0]) : undefined;
+  }
+
+  async update(orderId: string, updates: Partial<BillingOrder>): Promise<BillingOrder> {
+    return withMySqlTransaction(async (client) => {
+      const [rows] = await client.execute<MySqlOrderRow[]>(
+        'SELECT order_json FROM optimizer_orders WHERE id = ? FOR UPDATE',
+        [orderId]
+      );
+      if (!rows[0]) throw new Error(`Order not found: ${orderId}`);
+      const updated = { ...mysqlOrderFromRow(rows[0]), ...updates, updatedAt: new Date().toISOString() };
+      return updateMySqlOrderRow(client, updated);
+    });
+  }
+
+  async transition(orderId: string, status: OrderStatus, updates: Partial<BillingOrder> = {}): Promise<BillingOrder> {
+    return withMySqlTransaction(async (client) => {
+      const [rows] = await client.execute<MySqlOrderRow[]>(
+        'SELECT order_json FROM optimizer_orders WHERE id = ? FOR UPDATE',
+        [orderId]
+      );
+      if (!rows[0]) throw new Error(`Order not found: ${orderId}`);
+      const current = mysqlOrderFromRow(rows[0]);
+      if (current.status === status) {
+        const sameStatus = { ...current, ...updates, updatedAt: new Date().toISOString() };
+        return updateMySqlOrderRow(client, sameStatus);
+      }
+      if (TERMINAL_ORDER_STATUSES.has(current.status)) {
+        throw new Error(`Cannot transition terminal order ${orderId} from ${current.status} to ${status}`);
+      }
+      const updated = { ...current, ...updates, status, updatedAt: new Date().toISOString() };
+      return updateMySqlOrderRow(client, updated);
+    });
+  }
+}
+
 export function createOrderStore(): OrderStore {
-  return config.database.stateStoreProvider === 'postgres' ? new PostgresOrderStore() : new LocalOrderStore();
+  if (config.database.stateStoreProvider === 'mysql') return new MySqlOrderStore();
+  if (config.database.stateStoreProvider === 'postgres') return new PostgresOrderStore();
+  return new LocalOrderStore();
 }
 
 export const orderStore = createOrderStore();

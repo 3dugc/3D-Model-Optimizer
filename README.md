@@ -186,7 +186,7 @@ src/
 ├── routes/              # API routes
 ├── cloud/               # Object storage and queue provider contracts
 ├── jobs/                # Async job store, state machine, service
-├── database/            # Shared Postgres state store and migrations
+├── database/            # Shared MySQL/Postgres state stores and migrations
 ├── tasks/               # Extensible heavy task registry and model.optimize handler
 ├── worker/              # Docker worker runtime
 ├── billing/             # WeChat Native/mock billing contracts
@@ -210,7 +210,7 @@ The async Tencent Cloud version is specified separately so the current local ser
 - Local async runtime: `POST /api/v1/jobs`, `POST /api/v1/jobs/:jobId/complete-upload`, `GET /api/v1/jobs/:jobId`, `GET /api/v1/jobs/:jobId/result-url`
 - Local worker: `npm run worker` or `node dist/worker/run-worker.js`
 - Docker local cloud stack: `docker compose -f docker-compose.cloud.yml up --build`
-- Shared state store: set `DATABASE_URL` or `STATE_STORE_PROVIDER=postgres` to make API, workers, orders and worker heartbeats use Postgres instead of local JSON files.
+- Shared state store: set `STATE_STORE_PROVIDER=mysql` or `STATE_STORE_PROVIDER=postgres` with `DATABASE_URL` to make API, workers, orders and worker heartbeats use a shared database instead of local JSON files.
 - Runtime template: `.env.cloud.example`
 
 ## Testing
