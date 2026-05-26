@@ -15,9 +15,9 @@
 
 ## 2. 权限与密钥
 
-- [ ] 创建 Control API 子账号或角色。
+- [x] 创建运行时 CAM 子账号或角色，并绑定最小化 COS/CMQ 访问策略。
 - [ ] 授权 Control API 签发限定 COS 前缀的临时密钥。
-- [ ] 授权 Worker 读取 input bucket、写入 output bucket。
+- [x] 授权运行时读取 input bucket、写入 output bucket。
 - [ ] 授权 Dispatcher 提交 Batch 作业或扩缩 Spot CVM。
 - [ ] 准备微信支付商户号、AppID、商户私钥、证书序列号、API v3 key。
 - [ ] 准备客户回调密钥管理方式。
@@ -32,6 +32,7 @@
 - [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
 - [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
+- [x] 入口 Stack 已部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-dfe07b5`，健康检查通过。
 
 默认入口镜像：
 
@@ -115,8 +116,9 @@ CALLBACK_MAX_ATTEMPTS=6
 
 ## 7. API 验收
 
-- [ ] `POST /api/v1/jobs` 创建 `model.optimize` 任务并返回上传授权。
-- [ ] Job 记录包含 `taskType`，队列消息也包含 `taskType`。
+- [x] `POST /api/v1/jobs` 创建 `model.optimize` 任务并返回上传授权。
+- [x] Job 记录包含 `taskType`，队列消息也包含 `taskType`。
+- [x] `POST /api/v1/jobs` 使用真实 TDMQ/CMQ 入队 smoke test 通过，返回 `queued`。
 - [ ] 未注册 task type 会被拒绝。
 - [ ] 外部系统可用临时密钥上传模型到 COS。
 - [ ] COS 事件或 `complete-upload` 可触发入队。
