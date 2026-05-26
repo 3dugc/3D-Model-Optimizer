@@ -1,0 +1,86 @@
+services:
+  optimizer-api:
+    image: ghcr.io/3dugc/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
+    networks:
+      - proxy
+      - internal
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      API_KEY: ${OPTIMIZER_API_KEY:-}
+      CLOUD_PROVIDER: local
+      CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
+      JOB_STORE_PATH: /app/data/cloud/jobs.json
+      ORDER_STORE_PATH: /app/data/cloud/orders.json
+      TENCENT_REGION: ap-nanjing
+      COS_INPUT_BUCKET: 7dgame-private-1251022382
+      COS_OUTPUT_BUCKET: 7dgame-private-1251022382
+      DEFAULT_TASK_TYPE: model.optimize
+      JOB_MAX_ATTEMPTS: 3
+      JOB_TIMEOUT_SECONDS: 1800
+      BILLING_MODE: mock
+      DEFAULT_JOB_PRICE_CENTS: 800
+      WORKER_CONCURRENCY: 1
+      CALLBACK_TIMEOUT_SECONDS: 10
+      CALLBACK_MAX_ATTEMPTS: 6
+    volumes:
+      - optimizer-data:/app/data
+      - optimizer-temp:/app/temp
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.optimizer-api.rule=Host(`${OPTIMIZER_HOST:-optimizer.7dgame.com}`)
+      - traefik.http.routers.optimizer-api.entrypoints=websecure
+      - traefik.http.routers.optimizer-api.tls=true
+      - traefik.http.routers.optimizer-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.optimizer-api.service=optimizer-api
+      - traefik.http.services.optimizer-api.loadbalancer.server.port=3000
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  optimizer-worker:
+    image: ghcr.io/3dugc/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
+    command: node dist/worker/run-worker.js
+    networks:
+      - internal
+    environment:
+      NODE_ENV: production
+      CLOUD_PROVIDER: local
+      CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
+      JOB_STORE_PATH: /app/data/cloud/jobs.json
+      ORDER_STORE_PATH: /app/data/cloud/orders.json
+      TENCENT_REGION: ap-nanjing
+      COS_INPUT_BUCKET: 7dgame-private-1251022382
+      COS_OUTPUT_BUCKET: 7dgame-private-1251022382
+      DEFAULT_TASK_TYPE: model.optimize
+      JOB_MAX_ATTEMPTS: 3
+      JOB_TIMEOUT_SECONDS: 1800
+      BILLING_MODE: mock
+      WORKER_ID: optimizer-worker-1
+      INSTANCE_ID: portainer-local
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
+      WORKER_HEARTBEAT_INTERVAL_MS: 10000
+      CALLBACK_TIMEOUT_SECONDS: 10
+      CALLBACK_MAX_ATTEMPTS: 6
+    volumes:
+      - optimizer-data:/app/data
+      - optimizer-temp:/app/temp
+    restart: unless-stopped
+    depends_on:
+      - optimizer-api
+
+volumes:
+  optimizer-data:
+  optimizer-temp:
+
+networks:
+  proxy:
+    external: true
+  internal:
+    external: true
