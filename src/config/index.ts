@@ -44,11 +44,18 @@ export interface ServerConfig {
  */
 export interface CloudRuntimeConfig {
   provider: 'local' | 'tencent';
+  queueProvider: 'local' | 'tdmq-cmq';
   jobStorePath: string;
   localObjectRoot: string;
   inputBucket: string;
   outputBucket: string;
   region: string;
+  tencentSecretId?: string;
+  tencentSecretKey?: string;
+  tencentToken?: string;
+  queueEndpoint?: string;
+  queueName: string;
+  queuePollingWaitSeconds: number;
   defaultTaskType: string;
   jobMaxAttempts: number;
   jobTimeoutSeconds: number;
@@ -127,11 +134,21 @@ export const config: ServerConfig = {
   // Cloud async runtime settings
   cloud: {
     provider: process.env.CLOUD_PROVIDER === 'tencent' ? 'tencent' : 'local',
+    queueProvider:
+      process.env.QUEUE_PROVIDER === 'tdmq-cmq' || process.env.CLOUD_PROVIDER === 'tencent'
+        ? 'tdmq-cmq'
+        : 'local',
     jobStorePath: process.env.JOB_STORE_PATH || 'data/cloud/jobs.json',
     localObjectRoot: process.env.CLOUD_LOCAL_OBJECT_ROOT || 'data/cloud/objects',
     inputBucket: process.env.COS_INPUT_BUCKET || 'optimizer-input',
     outputBucket: process.env.COS_OUTPUT_BUCKET || 'optimizer-output',
     region: process.env.TENCENT_REGION || process.env.COS_REGION || 'ap-nanjing',
+    tencentSecretId: process.env.TENCENT_SECRET_ID,
+    tencentSecretKey: process.env.TENCENT_SECRET_KEY,
+    tencentToken: process.env.TENCENT_TOKEN,
+    queueEndpoint: process.env.QUEUE_ENDPOINT,
+    queueName: process.env.QUEUE_NAME || 'optimizer-jobs',
+    queuePollingWaitSeconds: parseNumber(process.env.QUEUE_POLLING_WAIT_SECONDS, 10),
     defaultTaskType: process.env.DEFAULT_TASK_TYPE || 'model.optimize',
     jobMaxAttempts: parsePositiveNumber(process.env.JOB_MAX_ATTEMPTS, 3),
     jobTimeoutSeconds: parsePositiveNumber(process.env.JOB_TIMEOUT_SECONDS, 30 * 60),

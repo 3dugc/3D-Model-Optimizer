@@ -74,6 +74,17 @@ MAX_SLOTS_PER_TENANT=2
 MAX_GLOBAL_SLOTS=20
 ```
 
+## Tencent Cloud Resources
+
+```text
+COS_BUCKET=model-optimizer-1251022382
+TENCENT_REGION=ap-nanjing
+QUEUE_NAME=optimizer-jobs
+DLQ_NAME=optimizer-jobs-dlq
+QUEUE_PUBLIC_ENDPOINT=https://cmq-nj.public.tencenttdmq.com
+QUEUE_PRIVATE_ENDPOINT=http://nj.mqadapter.cmq.tencentyun.com
+```
+
 ## Slot Sizing Guidance
 
 | CVM Spec | Default Slots | Notes |

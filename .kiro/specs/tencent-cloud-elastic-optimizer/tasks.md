@@ -44,7 +44,7 @@
 - [ ] 6. 实现 COS 上传和事件处理
   - [x] 6.1 定义 StorageProvider 接口
   - [x] 6.2 实现 LocalStorageProvider
-  - [ ] 6.3 实现 TencentCosStorageProvider
+  - [x] 6.3 实现 TencentCosStorageProvider
   - [ ] 6.4 实现 COS 临时密钥签发
   - [x] 6.5 实现 `POST /api/v1/cos/events`
   - [ ] 6.6 实现 COS-only manifest 解析和校验
@@ -73,8 +73,8 @@
 - [ ] 9. 实现队列和调度
   - [x] 9.1 定义 QueueProvider 接口
   - [x] 9.2 实现 LocalQueueProvider
-  - [ ] 9.3 实现 TDMQ/CMQ provider
-  - [ ] 9.4 实现消息 ACK、重试、死信策略
+  - [x] 9.3 实现 TDMQ/CMQ provider
+  - [x] 9.4 实现消息 ACK、重试、死信策略
   - [ ] 9.5 实现 Dispatcher slot 计算
   - [ ] 9.6 实现 Batch submit backend
   - [ ] 9.7 实现 Spot CVM scaling backend 或伸缩组对接

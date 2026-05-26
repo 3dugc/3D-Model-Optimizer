@@ -36,6 +36,7 @@
     "@types/cors": "^2.8.19",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
+    "cos-nodejs-sdk-v5": "^2.15.4",
     "draco3d": "^1.5.7",
     "express": "^4.21.0",
     "helmet": "^8.1.0",

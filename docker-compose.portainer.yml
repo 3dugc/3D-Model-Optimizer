@@ -9,12 +9,19 @@ services:
       PORT: 3000
       API_KEY: ${OPTIMIZER_API_KEY:-}
       CLOUD_PROVIDER: local
+      QUEUE_PROVIDER: local
       CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
       JOB_STORE_PATH: /app/data/cloud/jobs.json
       ORDER_STORE_PATH: /app/data/cloud/orders.json
       TENCENT_REGION: ap-nanjing
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      TENCENT_TOKEN: ${TENCENT_TOKEN:-}
       COS_INPUT_BUCKET: model-optimizer-1251022382
       COS_OUTPUT_BUCKET: model-optimizer-1251022382
+      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-}
+      QUEUE_NAME: ${QUEUE_NAME:-optimizer-jobs}
+      QUEUE_POLLING_WAIT_SECONDS: 10
       DEFAULT_TASK_TYPE: model.optimize
       JOB_MAX_ATTEMPTS: 3
       JOB_TIMEOUT_SECONDS: 1800

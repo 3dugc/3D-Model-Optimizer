@@ -10,6 +10,7 @@ export interface JobStore {
   findByIdempotencyKey(tenantId: string, idempotencyKey: string): Promise<CloudJob | undefined>;
   update(jobId: string, updates: Partial<CloudJob>): Promise<CloudJob>;
   transition(jobId: string, status: CloudJobStatus, updates?: Partial<CloudJob>): Promise<CloudJob>;
+  claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined>;
   claimNext(input: ClaimJobInput): Promise<CloudJob | undefined>;
   list(): Promise<CloudJob[]>;
 }
@@ -66,6 +67,32 @@ export class LocalJobStore implements JobStore {
     const current = data.jobs[index];
     assertJobStatusTransition(current.status, status);
     const updated = { ...current, ...updates, status };
+    data.jobs[index] = updated;
+    await this.write(data);
+    return updated;
+  }
+
+  async claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined> {
+    const data = await this.read();
+    const now = input.now ?? new Date();
+    const nowIso = now.toISOString();
+    const index = data.jobs.findIndex((job) => job.id === jobId);
+    if (index < 0) return undefined;
+
+    const current = data.jobs[index];
+    if (current.status !== 'queued' && current.status !== 'retry_wait') return undefined;
+    if (current.status === 'retry_wait' && current.queuedAt && new Date(current.queuedAt).getTime() > now.getTime()) {
+      return undefined;
+    }
+
+    assertJobStatusTransition(current.status, 'processing');
+    const updated: CloudJob = {
+      ...current,
+      status: 'processing',
+      workerId: input.workerId,
+      attempts: current.attempts + 1,
+      startedAt: nowIso,
+    };
     data.jobs[index] = updated;
     await this.write(data);
     return updated;

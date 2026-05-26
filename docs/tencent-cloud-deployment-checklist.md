@@ -6,9 +6,10 @@
 
 - [x] 创建专用 COS bucket：`model-optimizer-1251022382`，南京 `ap-nanjing`，私有读写，单 AZ。
 - [x] 确认 input/output 共用专用 bucket，并用 `optimizer/input/`、`optimizer/output/` 前缀隔离。
-- [ ] 配置 COS CORS，允许 Web UI 或外部系统直传。
-- [ ] 创建 TDMQ/CMQ 队列。
-- [ ] 配置死信队列或失败消息保留策略。
+- [x] 配置 COS CORS，允许 `https://*.7dgame.com`、`http://localhost:3000`、`http://localhost:5173` 直传；Methods：`PUT/GET/POST/HEAD`，Allow-Headers：`*`，Max-Age：`3600`。
+- [x] 创建 TDMQ/CMQ 队列：`optimizer-jobs`，南京地域。
+- [x] 配置死信队列：`optimizer-jobs-dlq`，并关联主队列。
+- [x] 记录 CMQ API 地址：公网 `https://cmq-nj.public.tencenttdmq.com`；腾讯云内网 `http://nj.mqadapter.cmq.tencentyun.com`。
 - [ ] 创建数据库实例，用于 tenants、jobs、orders、workers、callbacks。
 - [ ] 创建 CLS 日志主题和必要监控告警。
 
@@ -51,6 +52,7 @@ DATABASE_URL=
 
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
+TENCENT_TOKEN=
 TENCENT_REGION=ap-nanjing
 
 COS_INPUT_BUCKET=model-optimizer-1251022382
@@ -58,8 +60,9 @@ COS_OUTPUT_BUCKET=model-optimizer-1251022382
 COS_UPLOAD_CREDENTIAL_TTL_SECONDS=1800
 
 QUEUE_PROVIDER=tdmq-cmq
-QUEUE_ENDPOINT=
-QUEUE_NAME=
+QUEUE_ENDPOINT=https://cmq-nj.public.tencenttdmq.com
+QUEUE_NAME=optimizer-jobs
+QUEUE_POLLING_WAIT_SECONDS=10
 
 WECHAT_PAY_APP_ID=
 WECHAT_PAY_MCH_ID=
@@ -86,14 +89,15 @@ WORKER_JOB_TIMEOUT_MS=1800000
 DATABASE_URL=
 
 QUEUE_PROVIDER=tdmq-cmq
-QUEUE_ENDPOINT=
-QUEUE_NAME=
+QUEUE_ENDPOINT=http://nj.mqadapter.cmq.tencentyun.com
+QUEUE_NAME=optimizer-jobs
 
 COS_INPUT_BUCKET=model-optimizer-1251022382
 COS_OUTPUT_BUCKET=model-optimizer-1251022382
 TENCENT_REGION=ap-nanjing
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
+TENCENT_TOKEN=
 
 CALLBACK_TIMEOUT_SECONDS=10
 CALLBACK_MAX_ATTEMPTS=6
@@ -116,7 +120,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [ ] 未注册 task type 会被拒绝。
 - [ ] 外部系统可用临时密钥上传模型到 COS。
 - [ ] COS 事件或 `complete-upload` 可触发入队。
-- [ ] Worker 可消费任务并写回 output bucket。
+- [ ] Worker 可通过 `TDMQ/CMQ` 消费任务并写回 output bucket。
 - [ ] `GET /api/v1/jobs/:jobId` 可查到 succeeded/failed。
 - [ ] `GET /api/v1/jobs/:jobId/result-url` 返回短期下载 URL。
 - [ ] 客户回调带 HMAC 签名且可被客户系统验签。

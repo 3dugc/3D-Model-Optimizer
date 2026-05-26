@@ -129,6 +129,7 @@ export class CloudWorker {
         errorCode: undefined,
         errorMessage: undefined,
       });
+      await this.safeCompleteQueueMessage(completed);
       await this.maybeSendCallback(completed);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown worker error';
@@ -141,6 +142,7 @@ export class CloudWorker {
         queuedAt: shouldRetry ? new Date(Date.now() + delaySeconds * 1000).toISOString() : job.queuedAt,
         completedAt: shouldRetry ? undefined : new Date().toISOString(),
       });
+      await this.safeReleaseQueueMessage(updated, shouldRetry ? delaySeconds : undefined);
       if (!shouldRetry) {
         await this.maybeSendCallback(updated);
       }
@@ -153,6 +155,22 @@ export class CloudWorker {
     if (!job.callbackUrl) return;
     const result = await sendJobCallback(job, config.cloud.callbackTimeoutSeconds);
     logger.info({ jobId: job.id, callback: result }, 'Callback delivery attempted');
+  }
+
+  private async safeCompleteQueueMessage(job: CloudJob): Promise<void> {
+    try {
+      await this.queue.complete(job);
+    } catch (error) {
+      logger.error({ error, jobId: job.id }, 'Failed to acknowledge queue message');
+    }
+  }
+
+  private async safeReleaseQueueMessage(job: CloudJob, delaySeconds?: number): Promise<void> {
+    try {
+      await this.queue.release(job, delaySeconds ? { delaySeconds } : undefined);
+    } catch (error) {
+      logger.error({ error, jobId: job.id }, 'Failed to release queue message');
+    }
   }
 
   private startHeartbeat(): void {

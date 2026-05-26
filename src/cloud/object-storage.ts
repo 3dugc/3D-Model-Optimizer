@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import COS from 'cos-nodejs-sdk-v5';
 import type { CosObjectRef } from './types';
 import { config } from '../config';
 
@@ -21,6 +22,18 @@ function sanitizeObjectKey(key: string): string {
 
 async function ensureDirForFile(filePath: string): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+}
+
+function requireTencentCosClient(): COS {
+  if (!config.cloud.tencentSecretId || !config.cloud.tencentSecretKey) {
+    throw new Error('Tencent COS requires TENCENT_SECRET_ID and TENCENT_SECRET_KEY.');
+  }
+
+  return new COS({
+    SecretId: config.cloud.tencentSecretId,
+    SecretKey: config.cloud.tencentSecretKey,
+    SecurityToken: config.cloud.tencentToken,
+  });
 }
 
 export class LocalObjectStorageProvider implements ObjectStorageProvider {
@@ -67,20 +80,54 @@ export class LocalObjectStorageProvider implements ObjectStorageProvider {
 export class TencentCosObjectStorageProvider implements ObjectStorageProvider {
   readonly providerName = 'tencent' as const;
 
+  constructor(private readonly cos: COS = requireTencentCosClient()) {}
+
   toUri(object: CosObjectRef): string {
     return `cos://${object.bucket}/${sanitizeObjectKey(object.key)}?region=${encodeURIComponent(object.region)}`;
   }
 
-  async downloadObject(_object: CosObjectRef, _destinationPath: string): Promise<void> {
-    throw new Error('Tencent COS provider is not wired in this build. Use CLOUD_PROVIDER=local or install the Tencent COS SDK adapter before production deployment.');
+  async downloadObject(object: CosObjectRef, destinationPath: string): Promise<void> {
+    const safeKey = sanitizeObjectKey(object.key);
+    await ensureDirForFile(destinationPath);
+    const output = fs.createWriteStream(destinationPath);
+    try {
+      await this.cos.getObject({
+        Bucket: object.bucket,
+        Region: object.region,
+        Key: safeKey,
+        Output: output,
+      });
+    } catch (error) {
+      output.destroy();
+      throw error;
+    }
   }
 
-  async uploadObject(_sourcePath: string, _object: CosObjectRef): Promise<void> {
-    throw new Error('Tencent COS provider is not wired in this build. Use CLOUD_PROVIDER=local or install the Tencent COS SDK adapter before production deployment.');
+  async uploadObject(sourcePath: string, object: CosObjectRef): Promise<void> {
+    await this.cos.uploadFile({
+      Bucket: object.bucket,
+      Region: object.region,
+      Key: sanitizeObjectKey(object.key),
+      FilePath: sourcePath,
+      SliceSize: 8 * 1024 * 1024,
+    });
   }
 
-  async objectExists(_object: CosObjectRef): Promise<boolean> {
-    throw new Error('Tencent COS provider is not wired in this build. Use CLOUD_PROVIDER=local or install the Tencent COS SDK adapter before production deployment.');
+  async objectExists(object: CosObjectRef): Promise<boolean> {
+    try {
+      await this.cos.headObject({
+        Bucket: object.bucket,
+        Region: object.region,
+        Key: sanitizeObjectKey(object.key),
+      });
+      return true;
+    } catch (error) {
+      const cosError = error as COS.CosSdkError;
+      if (cosError.statusCode === 404 || cosError.code === 'NoSuchKey' || cosError.code === 'NoSuchBucket') {
+        return false;
+      }
+      throw error;
+    }
   }
 }
 

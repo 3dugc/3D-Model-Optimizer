@@ -4,6 +4,7 @@ import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import { LocalJobStore } from '../../src/jobs/job-store';
 import { LocalQueueProvider } from '../../src/cloud/queue';
+import { TencentCmqClient, cmqInternals } from '../../src/cloud/tencent-cmq-client';
 import { signCallbackPayload } from '../../src/callbacks/callback-service';
 import type { CloudJob } from '../../src/jobs/types';
 
@@ -55,6 +56,66 @@ describe('cloud runtime primitives', () => {
     expect(claimed?.workerId).toBe('worker-a');
     expect(claimed?.attempts).toBe(1);
     expect(secondClaim).toBeUndefined();
+  });
+
+  it('claims a specific job by queue message id', async () => {
+    const store = new LocalJobStore(await createTempFilePath('jobs.json'));
+    await store.create({ ...makeJob('job-a'), status: 'queued' });
+    await store.create({ ...makeJob('job-b'), status: 'queued' });
+
+    const claimed = await store.claim('job-b', { workerId: 'worker-b' });
+
+    expect(claimed?.id).toBe('job-b');
+    expect(claimed?.workerId).toBe('worker-b');
+    expect((await store.get('job-a'))?.status).toBe('queued');
+  });
+
+  it('builds deterministic CMQ signatures and parses empty receives', async () => {
+    const endpoint = cmqInternals.normalizeEndpoint('https://cmq-nj.public.tencenttdmq.com');
+    const signature = cmqInternals.createSignature(
+      'GET',
+      endpoint,
+      {
+        Action: 'SendMessage',
+        Nonce: '123',
+        SecretId: 'secret-id',
+        SignatureMethod: 'HmacSHA1',
+        Timestamp: '1700000000',
+        queueName: 'optimizer-jobs',
+        msgBody: JSON.stringify({ jobId: 'job-1' }),
+      },
+      'secret-key'
+    );
+    const sameSignature = cmqInternals.createSignature(
+      'GET',
+      endpoint,
+      {
+        Action: 'SendMessage',
+        Nonce: '123',
+        SecretId: 'secret-id',
+        SignatureMethod: 'HmacSHA1',
+        Timestamp: '1700000000',
+        queueName: 'optimizer-jobs',
+        msgBody: JSON.stringify({ jobId: 'job-1' }),
+      },
+      'secret-key'
+    );
+
+    const client = new TencentCmqClient({
+      endpoint: 'https://cmq-nj.public.tencenttdmq.com',
+      queueName: 'optimizer-jobs',
+      secretId: 'secret-id',
+      secretKey: 'secret-key',
+      fetchImpl: async () =>
+        ({
+          json: async () => ({ code: 7000, message: 'no message' }),
+        }) as Response,
+    });
+
+    expect(endpoint.pathname).toBe('/v2/index.php');
+    expect(signature).toBe(sameSignature);
+    expect(signature).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    await expect(client.receiveMessage()).resolves.toBeUndefined();
   });
 
   it('blocks invalid terminal job transitions', async () => {
