@@ -13,8 +13,8 @@ services:
       JOB_STORE_PATH: /app/data/cloud/jobs.json
       ORDER_STORE_PATH: /app/data/cloud/orders.json
       TENCENT_REGION: ap-nanjing
-      COS_INPUT_BUCKET: 7dgame-private-1251022382
-      COS_OUTPUT_BUCKET: 7dgame-private-1251022382
+      COS_INPUT_BUCKET: model-optimizer-1251022382
+      COS_OUTPUT_BUCKET: model-optimizer-1251022382
       DEFAULT_TASK_TYPE: model.optimize
       JOB_MAX_ATTEMPTS: 3
       JOB_TIMEOUT_SECONDS: 1800

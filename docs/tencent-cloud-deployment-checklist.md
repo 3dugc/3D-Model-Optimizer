@@ -4,8 +4,8 @@
 
 ## 1. 基础资源
 
-- [ ] 创建 COS input bucket。
-- [ ] 创建 COS output bucket，或确认与 input bucket 共用时有清晰前缀隔离。
+- [x] 创建专用 COS bucket：`model-optimizer-1251022382`，南京 `ap-nanjing`，私有读写，单 AZ。
+- [x] 确认 input/output 共用专用 bucket，并用 `optimizer/input/`、`optimizer/output/` 前缀隔离。
 - [ ] 配置 COS CORS，允许 Web UI 或外部系统直传。
 - [ ] 创建 TDMQ/CMQ 队列。
 - [ ] 配置死信队列或失败消息保留策略。
@@ -51,10 +51,10 @@ DATABASE_URL=
 
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
-TENCENT_REGION=ap-guangzhou
+TENCENT_REGION=ap-nanjing
 
-COS_INPUT_BUCKET=
-COS_OUTPUT_BUCKET=
+COS_INPUT_BUCKET=model-optimizer-1251022382
+COS_OUTPUT_BUCKET=model-optimizer-1251022382
 COS_UPLOAD_CREDENTIAL_TTL_SECONDS=1800
 
 QUEUE_PROVIDER=tdmq-cmq
@@ -89,9 +89,9 @@ QUEUE_PROVIDER=tdmq-cmq
 QUEUE_ENDPOINT=
 QUEUE_NAME=
 
-COS_INPUT_BUCKET=
-COS_OUTPUT_BUCKET=
-TENCENT_REGION=ap-guangzhou
+COS_INPUT_BUCKET=model-optimizer-1251022382
+COS_OUTPUT_BUCKET=model-optimizer-1251022382
+TENCENT_REGION=ap-nanjing
 TENCENT_SECRET_ID=
 TENCENT_SECRET_KEY=
 
