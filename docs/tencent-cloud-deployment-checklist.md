@@ -26,11 +26,11 @@
 
 - [x] GitHub Actions 构建 Docker 镜像。
 - [x] Portainer 入口栈使用腾讯云镜像仓库镜像。
-- [ ] 在腾讯云镜像仓库创建 `plugins/3d-model-optimizer`。
-- [ ] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_USERNAME`。
-- [ ] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
-- [ ] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
-- [ ] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
+- [x] 在腾讯云镜像仓库创建 `plugins/3d-model-optimizer`。
+- [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_USERNAME`。
+- [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
+- [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
+- [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
 
 默认入口镜像：
 
