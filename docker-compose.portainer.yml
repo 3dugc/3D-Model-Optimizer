@@ -1,6 +1,9 @@
 services:
   optimizer-api:
-    image: ghcr.io/3dugc/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
+    image: model-optimizer-entry:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
+    build:
+      context: .
+      dockerfile: Dockerfile
     networks:
       - proxy
       - internal
