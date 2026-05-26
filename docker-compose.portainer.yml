@@ -21,7 +21,6 @@ services:
       JOB_TIMEOUT_SECONDS: 1800
       BILLING_MODE: mock
       DEFAULT_JOB_PRICE_CENTS: 800
-      WORKER_CONCURRENCY: 1
       CALLBACK_TIMEOUT_SECONDS: 10
       CALLBACK_MAX_ATTEMPTS: 6
     volumes:
@@ -43,37 +42,6 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
-
-  optimizer-worker:
-    image: ghcr.io/3dugc/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
-    command: node dist/worker/run-worker.js
-    networks:
-      - internal
-    environment:
-      NODE_ENV: production
-      CLOUD_PROVIDER: local
-      CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
-      JOB_STORE_PATH: /app/data/cloud/jobs.json
-      ORDER_STORE_PATH: /app/data/cloud/orders.json
-      TENCENT_REGION: ap-nanjing
-      COS_INPUT_BUCKET: 7dgame-private-1251022382
-      COS_OUTPUT_BUCKET: 7dgame-private-1251022382
-      DEFAULT_TASK_TYPE: model.optimize
-      JOB_MAX_ATTEMPTS: 3
-      JOB_TIMEOUT_SECONDS: 1800
-      BILLING_MODE: mock
-      WORKER_ID: optimizer-worker-1
-      INSTANCE_ID: portainer-local
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
-      WORKER_HEARTBEAT_INTERVAL_MS: 10000
-      CALLBACK_TIMEOUT_SECONDS: 10
-      CALLBACK_MAX_ATTEMPTS: 6
-    volumes:
-      - optimizer-data:/app/data
-      - optimizer-temp:/app/temp
-    restart: unless-stopped
-    depends_on:
-      - optimizer-api
 
 volumes:
   optimizer-data:
