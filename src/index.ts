@@ -19,7 +19,15 @@ import helmet from 'helmet';
 import path from 'path';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
-import { optimizeRouter, downloadRouter, statusRouter, analyzeRouter, progressRouter } from './routes';
+import {
+  optimizeRouter,
+  downloadRouter,
+  statusRouter,
+  analyzeRouter,
+  progressRouter,
+  cloudJobsRouter,
+  billingRouter,
+} from './routes';
 import { errorHandler, notFoundHandler, authMiddleware, isAuthEnabled } from './middleware';
 import { config } from './config';
 import { cleanupOldFiles } from './utils/storage';
@@ -94,6 +102,8 @@ app.use('/api/optimize', authMiddleware, optimizeRouter);
 app.use('/api/download', authMiddleware, downloadRouter);
 app.use('/api/status', authMiddleware, statusRouter);
 app.use('/api/analyze', authMiddleware, analyzeRouter);
+app.use('/api/v1', authMiddleware, cloudJobsRouter);
+app.use('/api/v1/payments', authMiddleware, billingRouter);
 
 // 404 handler for undefined routes
 app.use(notFoundHandler);

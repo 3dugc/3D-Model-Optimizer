@@ -33,6 +33,39 @@ export interface ServerConfig {
   tempDir: string;
   /** Result files directory */
   resultDir: string;
+  /** Cloud async runtime configuration */
+  cloud: CloudRuntimeConfig;
+  /** Billing and payment configuration */
+  billing: BillingConfig;
+}
+
+/**
+ * Cloud async runtime configuration.
+ */
+export interface CloudRuntimeConfig {
+  provider: 'local' | 'tencent';
+  jobStorePath: string;
+  localObjectRoot: string;
+  inputBucket: string;
+  outputBucket: string;
+  region: string;
+  defaultTaskType: string;
+  jobMaxAttempts: number;
+  jobTimeoutSeconds: number;
+  workerConcurrency: number;
+  workerHeartbeatIntervalMs: number;
+  callbackTimeoutSeconds: number;
+  callbackMaxAttempts: number;
+}
+
+/**
+ * Billing and payment configuration.
+ */
+export interface BillingConfig {
+  mode: 'mock' | 'wechat_native' | 'disabled';
+  orderStorePath: string;
+  defaultJobPriceCents: number;
+  wechatNotifyUrl?: string;
 }
 
 /**
@@ -45,6 +78,14 @@ function parseNumber(value: string | undefined, defaultValue: number): number {
   if (!value) return defaultValue;
   const parsed = parseInt(value, 10);
   return isNaN(parsed) ? defaultValue : parsed;
+}
+
+/**
+ * Parse environment variable as a positive integer.
+ */
+function parsePositiveNumber(value: string | undefined, defaultValue: number): number {
+  const parsed = parseNumber(value, defaultValue);
+  return parsed > 0 ? parsed : defaultValue;
 }
 
 /**
@@ -82,6 +123,36 @@ export const config: ServerConfig = {
   // Directory settings
   tempDir: process.env.TEMP_DIR || 'temp',
   resultDir: process.env.RESULT_DIR || 'results',
+
+  // Cloud async runtime settings
+  cloud: {
+    provider: process.env.CLOUD_PROVIDER === 'tencent' ? 'tencent' : 'local',
+    jobStorePath: process.env.JOB_STORE_PATH || 'data/cloud/jobs.json',
+    localObjectRoot: process.env.CLOUD_LOCAL_OBJECT_ROOT || 'data/cloud/objects',
+    inputBucket: process.env.COS_INPUT_BUCKET || 'optimizer-input',
+    outputBucket: process.env.COS_OUTPUT_BUCKET || 'optimizer-output',
+    region: process.env.TENCENT_REGION || process.env.COS_REGION || 'ap-nanjing',
+    defaultTaskType: process.env.DEFAULT_TASK_TYPE || 'model.optimize',
+    jobMaxAttempts: parsePositiveNumber(process.env.JOB_MAX_ATTEMPTS, 3),
+    jobTimeoutSeconds: parsePositiveNumber(process.env.JOB_TIMEOUT_SECONDS, 30 * 60),
+    workerConcurrency: parsePositiveNumber(process.env.WORKER_CONCURRENCY, 1),
+    workerHeartbeatIntervalMs: parsePositiveNumber(process.env.WORKER_HEARTBEAT_INTERVAL_MS, 10 * 1000),
+    callbackTimeoutSeconds: parsePositiveNumber(process.env.CALLBACK_TIMEOUT_SECONDS, 10),
+    callbackMaxAttempts: parsePositiveNumber(process.env.CALLBACK_MAX_ATTEMPTS, 6),
+  },
+
+  // Billing settings
+  billing: {
+    mode:
+      process.env.BILLING_MODE === 'wechat_native'
+        ? 'wechat_native'
+        : process.env.BILLING_MODE === 'disabled'
+          ? 'disabled'
+          : 'mock',
+    orderStorePath: process.env.ORDER_STORE_PATH || 'data/cloud/orders.json',
+    defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 800),
+    wechatNotifyUrl: process.env.WECHAT_PAY_NOTIFY_URL,
+  },
 };
 
 // Re-export swagger configuration

@@ -13,4 +13,6 @@ export { default as downloadRouter } from './download';
 export { default as statusRouter } from './status';
 export { default as analyzeRouter } from './analyze';
 export { default as progressRouter } from './progress';
+export { default as cloudJobsRouter } from './cloud-jobs';
+export { default as billingRouter } from './billing';
 export { storeTask, getTask, updateTask } from './status';

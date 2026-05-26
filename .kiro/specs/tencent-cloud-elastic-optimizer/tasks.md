@@ -1,0 +1,132 @@
+# Implementation Tasks: Tencent Cloud Elastic Optimizer
+
+## Tasks
+
+- [x] 1. 建立开发分支和架构文档
+  - [x] 1.1 创建 `codex/tencent-cloud-elastic-optimizer` 开发分支
+  - [x] 1.2 新增腾讯云弹性架构文档
+  - [x] 1.3 明确 Docker Worker、slot 和单机并发策略
+  - _Requirements: 3.1, 4.1-4.6, 5.1-5.6_
+
+- [x] 2. 建立 spec 文件
+  - [x] 2.1 新增 requirements 文档
+  - [x] 2.2 新增 design 文档
+  - [x] 2.3 新增 plan 文档
+  - [x] 2.4 新增可勾选 tasks 文档
+  - _Requirements: 10.3_
+
+- [x] 3. 增加项目结构边界
+  - [x] 3.1 新增 `src/cloud` 腾讯云适配层目录说明和类型
+  - [x] 3.2 新增 `src/jobs` 任务状态与 repository 合约
+  - [x] 3.3 新增 `src/tasks` 可扩展重后端任务类型目录说明和类型
+  - [x] 3.4 新增 `src/worker` Docker Worker 运行时说明和类型
+  - [x] 3.5 新增 `src/billing` 计费/微信支付说明和类型
+  - [x] 3.6 新增 `src/callbacks` 回调说明和类型
+  - _Requirements: 1.1-1.5, 1A.1-1A.7, 4.1-4.6, 8.1-8.6_
+
+- [ ] 4. 抽象核心 Job 模型
+  - [x] 4.1 定义 Job、Order、Worker、CallbackDelivery、TaskType 的实体模型
+  - [x] 4.2 实现 Job 状态机和非法状态转换保护
+  - [x] 4.3 实现 Order 状态机和幂等支付更新
+  - [x] 4.4 增加本地内存 repository 用于开发测试
+  - [ ] 4.5 设计数据库 migration
+  - _Requirements: 1.1-1.5, 1A.1-1A.7, 8.1-8.6, 9.3, 9.4_
+
+- [ ] 5. 新增异步任务 API
+  - [x] 5.1 实现 `POST /api/v1/jobs`
+  - [x] 5.2 实现 `GET /api/v1/jobs/:jobId`
+  - [x] 5.3 实现 `POST /api/v1/jobs/:jobId/complete-upload`
+  - [x] 5.4 实现 `GET /api/v1/jobs/:jobId/result-url`
+  - [ ] 5.5 实现 API Key 鉴权和 scope 校验
+  - [ ] 5.6 添加 OpenAPI 文档和测试
+  - _Requirements: 1.1-1.5, 2.1, 6.6_
+
+- [ ] 6. 实现 COS 上传和事件处理
+  - [x] 6.1 定义 StorageProvider 接口
+  - [x] 6.2 实现 LocalStorageProvider
+  - [ ] 6.3 实现 TencentCosStorageProvider
+  - [ ] 6.4 实现 COS 临时密钥签发
+  - [x] 6.5 实现 `POST /api/v1/cos/events`
+  - [ ] 6.6 实现 COS-only manifest 解析和校验
+  - [ ] 6.7 测试重复 COS 事件幂等处理
+  - _Requirements: 2.1-2.5, 9.3_
+
+- [ ] 7. 抽取优化 Job Runner
+  - [ ] 7.1 从 `routes/optimize.ts` 抽取 ZIP 解压、主模型查找和转换逻辑
+  - [x] 7.2 增加安全解压限制：路径穿越、文件数量、总大小
+  - [x] 7.3 抽取 `model.optimize` Task_Handler 复用 `executePipeline`
+  - [x] 7.4 保持现有同步 API 行为不变
+  - [ ] 7.5 为 ZIP 和多格式转换增加回归测试
+  - _Requirements: 1A.1-1A.5, 6.1-6.5, 9.2_
+
+- [x] 8. 实现 Docker Worker
+  - [x] 8.1 新增 Worker CLI 入口
+  - [x] 8.2 支持 `WORKER_CONCURRENCY`
+  - [x] 8.3 实现 Worker heartbeat
+  - [x] 8.4 实现 draining 模式
+  - [x] 8.5 Worker 根据 `taskType` 选择 Task_Handler
+  - [x] 8.6 Worker 成功时上传结果和报告到 COS
+  - [x] 8.7 Worker 失败时写入结构化错误
+  - [x] 8.8 添加 worker Docker/Compose 示例
+  - _Requirements: 1A.1-1A.5, 4.1-4.6, 6.1-6.5, 10.1_
+
+- [ ] 9. 实现队列和调度
+  - [x] 9.1 定义 QueueProvider 接口
+  - [x] 9.2 实现 LocalQueueProvider
+  - [ ] 9.3 实现 TDMQ/CMQ provider
+  - [ ] 9.4 实现消息 ACK、重试、死信策略
+  - [ ] 9.5 实现 Dispatcher slot 计算
+  - [ ] 9.6 实现 Batch submit backend
+  - [ ] 9.7 实现 Spot CVM scaling backend 或伸缩组对接
+  - _Requirements: 3.1-3.6, 5.1-5.6_
+
+- [ ] 10. 接入微信 Native 支付
+  - [ ] 10.1 定义 PaymentProvider 接口
+  - [ ] 10.2 实现 Wechat Native 下单
+  - [ ] 10.3 Web UI 展示二维码
+  - [ ] 10.4 实现微信支付回调验签和解密
+  - [x] 10.5 支付成功后触发 Job 入队
+  - [ ] 10.6 实现订单过期、关闭和退款状态处理
+  - [ ] 10.7 增加支付回调幂等测试
+  - _Requirements: 8.1-8.6, 9.3, 9.5_
+
+- [ ] 11. 实现客户回调
+  - [x] 11.1 定义 callback payload 和签名协议
+  - [x] 11.2 实现 HMAC 签名
+  - [x] 11.3 实现回调发送和超时控制
+  - [ ] 11.4 实现指数退避重试
+  - [ ] 11.5 实现回调查询和重放接口
+  - [x] 11.6 增加签名和重试测试
+  - _Requirements: 7.1-7.5_
+
+- [ ] 12. 增加租户限额和成本保护
+  - [ ] 12.1 增加租户并发限制
+  - [ ] 12.2 增加每日任务数和总处理时长限制
+  - [ ] 12.3 增加全局最大 slot 和最大实例数限制
+  - [ ] 12.4 增加任务超时取消
+  - [ ] 12.5 增加成本告警指标
+  - [ ] 12.6 支持按 `taskType` 配置不同限额和价格
+  - _Requirements: 1A.6-1A.7, 5.5, 9.1, 10.2_
+
+- [ ] 13. 可观测性和部署资料
+  - [ ] 13.1 增加结构化日志字段
+  - [ ] 13.2 暴露队列深度、slot 使用率、失败率指标
+  - [x] 13.3 新增部署环境变量模板
+  - [x] 13.4 新增腾讯云资源创建清单
+  - [x] 13.5 新增生产演练 checklist
+  - _Requirements: 10.1-10.5_
+
+- [ ] 14. 集成验证
+  - [ ] 14.1 本地 fake queue + local storage 端到端测试
+  - [ ] 14.2 COS 上传到队列集成测试
+  - [ ] 14.3 Worker 并发 slot 压测
+  - [ ] 14.4 Spot 回收模拟测试
+  - [ ] 14.5 微信支付沙箱或测试商户回调测试
+  - [ ] 14.6 客户回调失败重试测试
+  - _Requirements: 1.1-10.5_
+
+## Notes
+
+- 勾选项代表可直接执行的工程任务。
+- 真实腾讯云和微信支付接入需要部署环境提供凭证，默认本地开发应使用 fake/local provider。
+- 每个阶段都应保持现有同步 API 可用，直到新异步 API 完成灰度。

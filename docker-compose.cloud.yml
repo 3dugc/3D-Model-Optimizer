@@ -1,0 +1,31 @@
+services:
+  optimizer-api:
+    build: .
+    command: node dist/index.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      BILLING_MODE: mock
+      HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+
+  optimizer-worker:
+    build: .
+    command: node dist/worker/run-worker.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      BILLING_MODE: mock
+      WORKER_ID: worker-compose-1
+      WORKER_CONCURRENCY: 1
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+    depends_on:
+      - optimizer-api

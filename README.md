@@ -184,14 +184,32 @@ src/
 │   ├── draco-compressor.ts        # Draco compression
 │   └── texture-compressor.ts      # Texture compression
 ├── routes/              # API routes
+├── cloud/               # Object storage and queue provider contracts
+├── jobs/                # Async job store, state machine, service
+├── tasks/               # Extensible heavy task registry and model.optimize handler
+├── worker/              # Docker worker runtime
+├── billing/             # WeChat Native/mock billing contracts
+├── callbacks/           # Customer callback signing/delivery helpers
 ├── middleware/           # Error handling, API Key auth
 ├── models/              # Data models
 ├── utils/               # File validation, storage, logging
 └── config/              # Swagger config
 public/                  # Web UI
 scripts/                 # Python conversion scripts
-tests/                   # Unit tests (226 of them, we're thorough)
+tests/                   # Unit tests (229 of them, we're thorough)
 ```
+
+## Cloud Architecture Roadmap
+
+The async Tencent Cloud version is specified separately so the current local service can remain stable while the cloud runtime is built.
+
+- Architecture: [docs/tencent-cloud-architecture.md](docs/tencent-cloud-architecture.md)
+- Deployment checklist: [docs/tencent-cloud-deployment-checklist.md](docs/tencent-cloud-deployment-checklist.md)
+- Spec: [.kiro/specs/tencent-cloud-elastic-optimizer](.kiro/specs/tencent-cloud-elastic-optimizer)
+- Local async runtime: `POST /api/v1/jobs`, `POST /api/v1/jobs/:jobId/complete-upload`, `GET /api/v1/jobs/:jobId`, `GET /api/v1/jobs/:jobId/result-url`
+- Local worker: `npm run worker` or `node dist/worker/run-worker.js`
+- Docker local cloud stack: `docker compose -f docker-compose.cloud.yml up --build`
+- Runtime template: `.env.cloud.example`
 
 ## Testing
 
@@ -199,7 +217,7 @@ tests/                   # Unit tests (226 of them, we're thorough)
 npm test
 ```
 
-226 tests. All passing. We checked.
+229 tests. All passing. We checked.
 
 ## License
 
