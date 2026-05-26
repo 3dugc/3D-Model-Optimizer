@@ -72,34 +72,28 @@ describe('cloud runtime primitives', () => {
 
   it('builds deterministic CMQ signatures and parses empty receives', async () => {
     const endpoint = cmqInternals.normalizeEndpoint('https://cmq-nj.public.tencenttdmq.com');
+    const signatureParams = {
+      Action: 'SendMessage',
+      Nonce: '123',
+      SecretId: 'secret-id',
+      SignatureMethod: 'HmacSHA1',
+      Timestamp: '1700000000',
+      queueName: 'optimizer-jobs',
+      msgBody: JSON.stringify({ jobId: 'job-1', note: 'hello world' }),
+    };
     const signature = cmqInternals.createSignature(
       'GET',
       endpoint,
-      {
-        Action: 'SendMessage',
-        Nonce: '123',
-        SecretId: 'secret-id',
-        SignatureMethod: 'HmacSHA1',
-        Timestamp: '1700000000',
-        queueName: 'optimizer-jobs',
-        msgBody: JSON.stringify({ jobId: 'job-1' }),
-      },
+      signatureParams,
       'secret-key'
     );
     const sameSignature = cmqInternals.createSignature(
       'GET',
       endpoint,
-      {
-        Action: 'SendMessage',
-        Nonce: '123',
-        SecretId: 'secret-id',
-        SignatureMethod: 'HmacSHA1',
-        Timestamp: '1700000000',
-        queueName: 'optimizer-jobs',
-        msgBody: JSON.stringify({ jobId: 'job-1' }),
-      },
+      signatureParams,
       'secret-key'
     );
+    const signatureSource = cmqInternals.createSignatureSource('GET', endpoint, signatureParams);
 
     const client = new TencentCmqClient({
       endpoint: 'https://cmq-nj.public.tencenttdmq.com',
@@ -113,6 +107,8 @@ describe('cloud runtime primitives', () => {
     });
 
     expect(endpoint.pathname).toBe('/v2/index.php');
+    expect(signatureSource).toContain('msgBody={"jobId":"job-1","note":"hello world"}');
+    expect(signatureSource).not.toContain('%7B');
     expect(signature).toBe(sameSignature);
     expect(signature).toMatch(/^[A-Za-z0-9+/]+=*$/);
     await expect(client.receiveMessage()).resolves.toBeUndefined();

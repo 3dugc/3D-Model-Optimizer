@@ -28,12 +28,6 @@ interface TencentCmqResponse {
 
 type TencentCmqAction = 'SendMessage' | 'ReceiveMessage' | 'DeleteMessage';
 
-function encodeParam(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-}
-
 function normalizeEndpoint(endpoint: string): URL {
   const url = new URL(endpoint.includes('://') ? endpoint : `https://${endpoint}`);
   if (!url.pathname || url.pathname === '/') {
@@ -43,12 +37,16 @@ function normalizeEndpoint(endpoint: string): URL {
   return url;
 }
 
-function createSignature(method: 'GET', url: URL, params: Record<string, string>, secretKey: string): string {
+function createSignatureSource(method: 'GET', url: URL, params: Record<string, string>): string {
   const query = Object.keys(params)
     .sort()
-    .map((key) => `${key}=${encodeParam(params[key])}`)
+    .map((key) => `${key.replace(/_/g, '.')}=${params[key]}`)
     .join('&');
-  const source = `${method}${url.host}${url.pathname}?${query}`;
+  return `${method}${url.host}${url.pathname}?${query}`;
+}
+
+function createSignature(method: 'GET', url: URL, params: Record<string, string>, secretKey: string): string {
+  const source = createSignatureSource(method, url, params);
   return createHmac('sha1', secretKey).update(source).digest('base64');
 }
 
@@ -123,7 +121,7 @@ export class TencentCmqClient {
 }
 
 export const cmqInternals = {
-  encodeParam,
   normalizeEndpoint,
+  createSignatureSource,
   createSignature,
 };
