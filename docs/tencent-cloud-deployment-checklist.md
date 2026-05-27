@@ -34,7 +34,7 @@
 - [x] 在腾讯云镜像仓库创建 `plugins/3d-model-optimizer`。
 - [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_USERNAME`。
 - [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
-- [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
+- [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest` 成功；CI 不再生成短哈希镜像 tag。
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
 - [x] 入口 Stack 已切为 API-only，并部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-121dbaf`，健康检查通过。
 - [x] 入口 Stack 已热修到 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`，健康检查通过。
@@ -43,7 +43,7 @@
 默认入口镜像：
 
 ```text
-hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:codex-tencent-cloud-elastic-optimizer
+hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest
 ```
 
 ## 4. Control API 环境变量

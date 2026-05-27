@@ -47,7 +47,7 @@ flowchart LR
 | Worker 基准机 | `model-optimizer-worker-base` / `ins-big9dirk` | 制作 Worker 镜像的基准 CVM | 已停机，待确认后释放 |
 | Worker 基准机内网 | `10.206.0.21` | Worker 访问 DB/CMQ/COS | 已确认 |
 | Worker 基准机公网 | `119.45.240.220` | 临时管理入口 | 已确认 |
-| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 弹性 Worker 克隆源，缓存 `sha-d465f02` | 已验证，当前使用 |
+| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 弹性 Worker 克隆源，当前应缓存 `latest` | 已验证，当前使用 |
 | 旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 上一版 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
 | 更旧 Worker 镜像 | `model-optimizer-worker-base-20260527` / `img-rxjo5rca` | 首版弹性 Worker 克隆源 | 已被 `img-hmvlx5n2` 替代 |
 | CVM 启动模板 | `lt-model-optimizer-worker-spot` | CVM 购买页保存的竞价模板 | 已保存 |
@@ -301,7 +301,7 @@ UPDATED_AT=2026-05-27 16:02 Asia/Shanghai
 ```text
 WORKER_IMAGE_ID=img-d9cslozu
 WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix2
-DOCKER_IMAGE=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02
+DOCKER_IMAGE=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest
 SA9_FALLBACK_AS_GROUP_ID=asg-pj6qaput
 SA9_FALLBACK_LAUNCH_CONFIGURATION_ID=asc-onk753cj
 BF1_LARGE8_AS_GROUP_ID=asg-ov9ndzql
@@ -319,6 +319,7 @@ UPDATED_AT=2026-05-27 17:05 Asia/Shanghai
 说明：
 
 - `MIN_SIZE=0` 且 `DESIRED_CAPACITY=0`，当前不会自动创建 Worker CVM。
+- 镜像仓库只保留 `latest` 作为滚动 tag；短哈希 `sha-*` tag 用于历史调试的收益不抵腾讯仓库容量成本，后续不再生成。
 - `MAX_SIZE=3` 是成本保护阈值，压测前不要放大。
 - 启动配置未绑定公网 IP，Worker 只走内网访问 TDSQL-C/CMQ；COS 访问按腾讯云网络路径和账号权限处理。
 - 当前 CAM 子账号临时绑定了 `QcloudASFullAccess` 和 TAT 相关权限用于创建资源、远程排障和验证。正式接入 Dispatcher 前，应改成最小权限策略，只允许查询/修改指定伸缩组容量；TAT 权限只保留给人工运维账号或按需移除。

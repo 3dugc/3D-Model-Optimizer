@@ -161,10 +161,14 @@
   - [x] 15.11n 记录 `BF1.LARGE8` 当前 `SpotSoldOut`，调度器需要多规格 fallback
   - [x] 15.11o 停止 Worker 基准机 `ins-big9dirk`
   - [x] 15.12 将入口 Stack 热修到 `sha-d465f02` 并确认健康检查
-  - [ ] 15.13 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
-  - [ ] 15.14 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
-  - [ ] 15.15 将 CAM 子账号临时 TAT 权限收窄或移除
-  - [ ] 15.16 最终确认后释放 Worker 基准机 `ins-big9dirk`
+  - [x] 15.13 将 CI 镜像 tag 策略改为只推 `latest`，不再生成短哈希 tag
+  - [x] 15.14 增加腾讯镜像仓库 `sha-*` tag 手动清理 workflow
+  - [ ] 15.15 将入口 Stack 和 Worker 基准镜像切到 `latest`
+  - [ ] 15.16 执行腾讯镜像仓库短哈希 tag 清理
+  - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
+  - [ ] 15.18 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
+  - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除
+  - [ ] 15.20 最终确认后释放 Worker 基准机 `ins-big9dirk`
   - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 
 ## Notes

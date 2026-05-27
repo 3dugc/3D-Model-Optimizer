@@ -1,6 +1,6 @@
 services:
   optimizer-api:
-    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-codex-tencent-cloud-elastic-optimizer}
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
     networks:
       - proxy
     environment:
