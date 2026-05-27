@@ -1,5 +1,6 @@
 import type { QueueJobMessage } from './types';
 import { TencentCmqClient } from './tencent-cmq-client';
+import { createTencentCredentialProvider } from './tencent-credentials';
 import { config } from '../config';
 import type { ClaimJobInput, CloudJob } from '../jobs/types';
 import { jobStore, type JobStore } from '../jobs/job-store';
@@ -147,15 +148,14 @@ function createTencentCmqClient(): TencentCmqClient {
   if (!config.cloud.queueEndpoint) {
     throw new Error('Tencent CMQ requires QUEUE_ENDPOINT.');
   }
-  if (!config.cloud.tencentSecretId || !config.cloud.tencentSecretKey) {
-    throw new Error('Tencent CMQ requires TENCENT_SECRET_ID and TENCENT_SECRET_KEY.');
-  }
+  const credentialProvider = createTencentCredentialProvider();
   return new TencentCmqClient({
     endpoint: config.cloud.queueEndpoint,
     queueName: config.cloud.queueName,
     secretId: config.cloud.tencentSecretId,
     secretKey: config.cloud.tencentSecretKey,
     token: config.cloud.tencentToken,
+    credentialProvider,
     region: config.cloud.region,
   });
 }

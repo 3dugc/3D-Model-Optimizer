@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { LocalJobStore, MySqlJobStore } from '../../src/jobs/job-store';
 import { LocalQueueProvider, TencentCmqQueueProvider } from '../../src/cloud/queue';
 import { TencentCmqClient, cmqInternals } from '../../src/cloud/tencent-cmq-client';
+import { TencentCvmRoleCredentialProvider } from '../../src/cloud/tencent-credentials';
 import { signCallbackPayload } from '../../src/callbacks/callback-service';
 import { ElasticDispatcher, LocalScalingBackend } from '../../src/dispatcher/dispatcher';
+import { TencentAsClient } from '../../src/dispatcher/tencent-as-client';
 import { calculateDesiredInstances, planPoolDesiredCapacities, summarizeJobBacklog } from '../../src/dispatcher/scaling';
 import type { CloudJob } from '../../src/jobs/types';
 
@@ -177,6 +179,107 @@ describe('cloud runtime primitives', () => {
     expect(signature).toBe(sameSignature);
     expect(signature).toMatch(/^[A-Za-z0-9+/]+=*$/);
     await expect(client.receiveMessage()).resolves.toBeUndefined();
+  });
+
+  it('loads and caches Tencent CVM role credentials from metadata', async () => {
+    const requestedUrls: string[] = [];
+    const provider = new TencentCvmRoleCredentialProvider({
+      baseUrl: 'http://metadata.test/credentials',
+      fetchImpl: async (input) => {
+        requestedUrls.push(String(input));
+        if (String(input).endsWith('/credentials')) {
+          return { ok: true, text: async () => 'model-optimizer-runtime-role' } as Response;
+        }
+        return {
+          ok: true,
+          text: async () =>
+            JSON.stringify({
+              Code: 'Success',
+              TmpSecretId: 'tmp-secret-id',
+              TmpSecretKey: 'tmp-secret-key',
+              Token: 'tmp-token',
+              ExpiredTime: Math.floor(Date.now() / 1000) + 3600,
+              StartTime: Math.floor(Date.now() / 1000) - 60,
+            }),
+        } as Response;
+      },
+    });
+
+    await expect(provider.getCredentials()).resolves.toMatchObject({
+      secretId: 'tmp-secret-id',
+      secretKey: 'tmp-secret-key',
+      token: 'tmp-token',
+    });
+    await provider.getCredentials();
+
+    expect(requestedUrls).toEqual([
+      'http://metadata.test/credentials',
+      'http://metadata.test/credentials/model-optimizer-runtime-role',
+    ]);
+  });
+
+  it('signs CMQ requests with dynamic Tencent credentials', async () => {
+    const seenUrls: string[] = [];
+    const client = new TencentCmqClient({
+      endpoint: 'https://cmq-nj.public.tencenttdmq.com',
+      queueName: 'optimizer-jobs',
+      credentialProvider: {
+        getCredentials: async () => ({
+          secretId: 'tmp-secret-id',
+          secretKey: 'tmp-secret-key',
+          token: 'tmp-token',
+        }),
+      },
+      fetchImpl: async (input) => {
+        seenUrls.push(String(input));
+        return { json: async () => ({ code: 7000, message: 'no message' }) } as Response;
+      },
+    });
+
+    await expect(client.receiveMessage()).resolves.toBeUndefined();
+
+    const url = new URL(seenUrls[0]);
+    expect(url.searchParams.get('SecretId')).toBe('tmp-secret-id');
+    expect(url.searchParams.get('Token')).toBe('tmp-token');
+  });
+
+  it('signs Tencent AS requests with dynamic Tencent credentials', async () => {
+    const seenHeaders: Record<string, string>[] = [];
+    const client = new TencentAsClient({
+      region: 'ap-nanjing',
+      credentialProvider: {
+        getCredentials: async () => ({
+          secretId: 'tmp-secret-id',
+          secretKey: 'tmp-secret-key',
+          token: 'tmp-token',
+        }),
+      },
+      fetchImpl: async (_input, init) => {
+        seenHeaders.push(init?.headers as Record<string, string>);
+        return {
+          ok: true,
+          json: async () => ({
+            Response: {
+              AutoScalingGroupSet: [
+                {
+                  AutoScalingGroupId: 'asg-a',
+                  AutoScalingGroupName: 'pool-a',
+                  MinSize: 0,
+                  MaxSize: 1,
+                  DesiredCapacity: 0,
+                  InServiceInstanceCount: 0,
+                },
+              ],
+            },
+          }),
+        } as Response;
+      },
+    });
+
+    await expect(client.describeAutoScalingGroups(['asg-a'])).resolves.toHaveLength(1);
+
+    expect(seenHeaders[0].Authorization).toContain('Credential=tmp-secret-id/');
+    expect(seenHeaders[0]['X-TC-Token']).toBe('tmp-token');
   });
 
   it('defers CMQ watchdog messages while a processing lease is still active', async () => {

@@ -1,12 +1,14 @@
 import { createHmac, randomInt } from 'crypto';
 import type { QueueJobMessage } from './types';
+import type { TencentCredentialProvider } from './tencent-credentials';
 
 export interface TencentCmqClientOptions {
   endpoint: string;
   queueName: string;
-  secretId: string;
-  secretKey: string;
+  secretId?: string;
+  secretKey?: string;
   token?: string;
+  credentialProvider?: TencentCredentialProvider;
   region?: string;
   fetchImpl?: typeof fetch;
 }
@@ -92,17 +94,27 @@ export class TencentCmqClient {
   }
 
   private async request(action: TencentCmqAction, actionParams: Record<string, string>): Promise<TencentCmqResponse> {
+    const credentials = this.options.credentialProvider
+      ? await this.options.credentialProvider.getCredentials()
+      : {
+          secretId: this.options.secretId,
+          secretKey: this.options.secretKey,
+          token: this.options.token,
+        };
+    if (!credentials.secretId || !credentials.secretKey) {
+      throw new Error('Tencent CMQ requires Tencent credentials.');
+    }
     const params = {
       Action: action,
       Nonce: String(randomInt(1, 2_147_483_647)),
-      SecretId: this.options.secretId,
+      SecretId: credentials.secretId,
       SignatureMethod: 'HmacSHA1',
       Timestamp: String(Math.floor(Date.now() / 1000)),
       ...(this.options.region ? { Region: this.options.region } : {}),
-      ...(this.options.token ? { Token: this.options.token } : {}),
+      ...(credentials.token ? { Token: credentials.token } : {}),
       ...actionParams,
     };
-    const signature = createSignature('GET', this.endpointUrl, params, this.options.secretKey);
+    const signature = createSignature('GET', this.endpointUrl, params, credentials.secretKey);
     const url = new URL(this.endpointUrl.toString());
     for (const [key, value] of Object.entries({ ...params, Signature: signature })) {
       url.searchParams.set(key, value);

@@ -498,6 +498,36 @@ asg-o7ii5sub   # BF1.MEDIUM4
 asg-9f3nd5an   # BF1.MEDIUM2
 ```
 
+## 运行时密钥迁移
+
+生产运行时优先使用 CVM/AS 实例角色，不再把永久 CAM Secret 固化到 Portainer Stack、Worker 镜像或服务器文件中。
+
+代码支持两种凭证来源：
+
+1. 如果部署环境配置了 `TENCENT_SECRET_ID` 和 `TENCENT_SECRET_KEY`，继续使用现有永久密钥，兼容当前生产。
+2. 如果永久密钥为空，则 API、Dispatcher 和 Worker 会从 CVM metadata 读取绑定 CAM 角色的 STS 临时凭证。
+
+相关环境变量：
+
+```text
+TENCENT_CVM_ROLE_NAME=                         # 可选；为空时从 metadata 读取当前绑定角色名
+TENCENT_CVM_ROLE_METADATA_URL=                 # 可选；默认使用腾讯云 CVM CAM role metadata 地址
+TENCENT_SECRET_ID=                             # 迁移后留空
+TENCENT_SECRET_KEY=                            # 迁移后留空
+TENCENT_TOKEN=                                 # 使用实例角色时由 metadata 返回，不需要手工配置
+```
+
+迁移顺序：
+
+1. [ ] 创建或复用运行时 CAM 角色，绑定与 `modeloptimizer` 当前等价的 COS/CMQ runtime 权限和 Dispatcher AS 最小权限。
+2. [ ] 将入口 CVM 绑定运行时 CAM 角色。
+3. [ ] 更新 Worker AS 启动配置或实例模板，让新弹性 Worker 绑定同一个运行时 CAM 角色。
+4. [ ] 先保留永久密钥，部署支持实例角色的新镜像，跑一次 smoke test。
+5. [ ] 从 Portainer Stack 环境变量移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN`。
+6. [ ] 重新部署入口 Stack，确认 `/health` 正常。
+7. [ ] 提交真实任务，验证 API、CMQ、COS、Dispatcher AS 和 Worker 全链路都能使用实例角色临时凭证。
+8. [ ] 验证通过后，停用旧永久密钥；不要创建新的 `modeloptimizer` API key。
+
 ## 新服务接入模板
 
 新增一个重后端服务时，不复制整套基础设施，只新增 task handler 和配置。

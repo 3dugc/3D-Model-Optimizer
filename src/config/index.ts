@@ -65,6 +65,8 @@ export interface CloudRuntimeConfig {
   tencentSecretId?: string;
   tencentSecretKey?: string;
   tencentToken?: string;
+  tencentCvmRoleName?: string;
+  tencentCvmRoleMetadataUrl?: string;
   queueEndpoint?: string;
   queueName: string;
   queuePollingWaitSeconds: number;
@@ -195,6 +197,8 @@ export const config: ServerConfig = {
     tencentSecretId: process.env.TENCENT_SECRET_ID,
     tencentSecretKey: process.env.TENCENT_SECRET_KEY,
     tencentToken: process.env.TENCENT_TOKEN,
+    tencentCvmRoleName: process.env.TENCENT_CVM_ROLE_NAME,
+    tencentCvmRoleMetadataUrl: process.env.TENCENT_CVM_ROLE_METADATA_URL,
     queueEndpoint: process.env.QUEUE_ENDPOINT,
     queueName: process.env.QUEUE_NAME || 'optimizer-jobs',
     queuePollingWaitSeconds: parseNumber(process.env.QUEUE_POLLING_WAIT_SECONDS, 10),

@@ -3,6 +3,7 @@ import * as path from 'path';
 import COS from 'cos-nodejs-sdk-v5';
 import type { CosObjectRef } from './types';
 import { config } from '../config';
+import { createTencentCredentialProvider } from './tencent-credentials';
 
 export interface ObjectStorageProvider {
   providerName: 'local' | 'tencent';
@@ -25,14 +26,31 @@ async function ensureDirForFile(filePath: string): Promise<void> {
 }
 
 function requireTencentCosClient(): COS {
-  if (!config.cloud.tencentSecretId || !config.cloud.tencentSecretKey) {
-    throw new Error('Tencent COS requires TENCENT_SECRET_ID and TENCENT_SECRET_KEY.');
-  }
+  const credentialProvider = createTencentCredentialProvider();
 
   return new COS({
-    SecretId: config.cloud.tencentSecretId,
-    SecretKey: config.cloud.tencentSecretKey,
-    SecurityToken: config.cloud.tencentToken,
+    ...(config.cloud.tencentSecretId && config.cloud.tencentSecretKey
+      ? {
+          SecretId: config.cloud.tencentSecretId,
+          SecretKey: config.cloud.tencentSecretKey,
+          SecurityToken: config.cloud.tencentToken,
+        }
+      : {
+          getAuthorization: (_options, callback) => {
+            credentialProvider
+              .getCredentials()
+              .then((credentials) =>
+                callback({
+                  TmpSecretId: credentials.secretId,
+                  TmpSecretKey: credentials.secretKey,
+                  SecurityToken: credentials.token,
+                  ExpiredTime: credentials.expiredTime || Math.floor(Date.now() / 1000) + 1800,
+                  StartTime: credentials.startTime || Math.floor(Date.now() / 1000) - 60,
+                })
+              )
+              .catch(() => callback({} as never));
+          },
+        }),
   });
 }
 

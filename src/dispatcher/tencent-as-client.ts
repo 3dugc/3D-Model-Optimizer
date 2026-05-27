@@ -1,5 +1,6 @@
 import { createHash, createHmac } from 'crypto';
 import { config } from '../config';
+import { createTencentCredentialProvider, type TencentCredentialProvider } from '../cloud/tencent-credentials';
 import type { ScalingBackend, ScalingBackendSnapshot, ScalingPool } from './types';
 import { planPoolDesiredCapacities } from './scaling';
 
@@ -27,9 +28,10 @@ interface DescribeAutoScalingGroupsResponse {
 
 export interface TencentAsClientOptions {
   region: string;
-  secretId: string;
-  secretKey: string;
+  secretId?: string;
+  secretKey?: string;
   token?: string;
+  credentialProvider?: TencentCredentialProvider;
   fetchImpl?: typeof fetch;
 }
 
@@ -74,6 +76,16 @@ export class TencentAsClient {
   }
 
   private async request<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+    const credentials = this.options.credentialProvider
+      ? await this.options.credentialProvider.getCredentials()
+      : {
+          secretId: this.options.secretId,
+          secretKey: this.options.secretKey,
+          token: this.options.token,
+        };
+    if (!credentials.secretId || !credentials.secretKey) {
+      throw new Error('Tencent AS dispatcher requires Tencent credentials.');
+    }
     const body = JSON.stringify(payload);
     const timestamp = Math.floor(Date.now() / 1000);
     const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
@@ -82,11 +94,11 @@ export class TencentAsClient {
     const canonicalRequest = ['POST', '/', '', canonicalHeaders, signedHeaders, sha256Hex(body)].join('\n');
     const credentialScope = `${date}/${this.service}/tc3_request`;
     const stringToSign = ['TC3-HMAC-SHA256', timestamp, credentialScope, sha256Hex(canonicalRequest)].join('\n');
-    const secretDate = hmac(`TC3${this.options.secretKey}`, date);
+    const secretDate = hmac(`TC3${credentials.secretKey}`, date);
     const secretService = hmac(secretDate, this.service);
     const secretSigning = hmac(secretService, 'tc3_request');
     const signature = hmac(secretSigning, stringToSign, 'hex');
-    const authorization = `TC3-HMAC-SHA256 Credential=${this.options.secretId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+    const authorization = `TC3-HMAC-SHA256 Credential=${credentials.secretId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
 
     const response = await this.fetchImpl(`https://${this.host}`, {
       method: 'POST',
@@ -98,7 +110,7 @@ export class TencentAsClient {
         'X-TC-Timestamp': String(timestamp),
         'X-TC-Version': this.version,
         'X-TC-Region': this.options.region,
-        ...(this.options.token ? { 'X-TC-Token': this.options.token } : {}),
+        ...(credentials.token ? { 'X-TC-Token': credentials.token } : {}),
       },
       body,
     });
@@ -137,14 +149,13 @@ export class TencentAsScalingBackend implements ScalingBackend {
 }
 
 function createTencentAsClient(): TencentAsClient {
-  if (!config.cloud.tencentSecretId || !config.cloud.tencentSecretKey) {
-    throw new Error('Tencent AS dispatcher requires TENCENT_SECRET_ID and TENCENT_SECRET_KEY.');
-  }
+  const credentialProvider = createTencentCredentialProvider();
   return new TencentAsClient({
     region: config.cloud.region,
     secretId: config.cloud.tencentSecretId,
     secretKey: config.cloud.tencentSecretKey,
     token: config.cloud.tencentToken,
+    credentialProvider,
   });
 }
 
