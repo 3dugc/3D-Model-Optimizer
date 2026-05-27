@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
-import { LocalJobStore } from '../../src/jobs/job-store';
+import { LocalJobStore, MySqlJobStore } from '../../src/jobs/job-store';
 import { LocalQueueProvider, TencentCmqQueueProvider } from '../../src/cloud/queue';
 import { TencentCmqClient, cmqInternals } from '../../src/cloud/tencent-cmq-client';
 import { signCallbackPayload } from '../../src/callbacks/callback-service';
@@ -102,6 +102,23 @@ describe('cloud runtime primitives', () => {
     expect(reclaimed?.status).toBe('processing');
     expect(reclaimed?.workerId).toBe('worker-b');
     expect(reclaimed?.attempts).toBe(2);
+  });
+
+  it('uses a sanitized literal LIMIT for MySQL lease recovery', async () => {
+    const calls: Array<{ sql: string; values: unknown[] | undefined }> = [];
+    const client = {
+      execute: async (sql: string, values?: unknown[]) => {
+        calls.push({ sql, values });
+        return [[], []];
+      },
+    };
+    const store = new MySqlJobStore(client as never);
+
+    await expect(store.recoverExpiredLeases({ limit: 7 })).resolves.toEqual([]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toContain('LIMIT 7');
+    expect(calls[0].values).toEqual([]);
   });
 
   it('claims a specific job by queue message id', async () => {

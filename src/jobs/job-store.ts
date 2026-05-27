@@ -43,6 +43,12 @@ function resolveLeaseDurationMs(value?: number): number {
   return Math.max(1000, value ?? defaultLeaseDurationMs());
 }
 
+function resolveRecoveryLimit(value?: number): number {
+  const numeric = value ?? 50;
+  if (!Number.isFinite(numeric)) return 50;
+  return Math.max(1, Math.min(500, Math.floor(numeric)));
+}
+
 function addMs(date: Date, ms: number): string {
   return new Date(date.getTime() + ms).toISOString();
 }
@@ -208,7 +214,7 @@ export class LocalJobStore implements JobStore {
   async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
     const data = await this.read();
     const now = input.now ?? new Date();
-    const limit = Math.max(1, input.limit ?? 50);
+    const limit = resolveRecoveryLimit(input.limit);
     const recovered: CloudJob[] = [];
     for (let index = 0; index < data.jobs.length && recovered.length < limit; index += 1) {
       const updated = recoverExpiredLeaseJob(data.jobs[index], now, input.reason);
@@ -451,7 +457,7 @@ export class PostgresJobStore implements JobStore {
 
   async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
     const now = input.now ?? new Date();
-    const limit = Math.max(1, input.limit ?? 50);
+    const limit = resolveRecoveryLimit(input.limit);
     const result = await this.client.query<JobRow>(
       `
         SELECT job_json
@@ -685,16 +691,16 @@ export class MySqlJobStore implements JobStore {
 
   async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
     const now = input.now ?? new Date();
-    const limit = Math.max(1, input.limit ?? 50);
+    const limit = resolveRecoveryLimit(input.limit);
     const [rows] = await this.client.execute<MySqlJobRow[]>(
       `
         SELECT job_json
         FROM optimizer_jobs
         WHERE status = 'processing'
         ORDER BY started_at, created_at
-        LIMIT ?
+        LIMIT ${limit}
       `,
-      [limit]
+      []
     );
     const recovered: CloudJob[] = [];
     for (const row of rows) {
