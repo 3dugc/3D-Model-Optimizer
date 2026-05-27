@@ -127,7 +127,7 @@
   - [x] 14.4a 实现 job 租约、续租和过期恢复，避免 Worker 被回收后任务永久卡在 `processing`
   - [x] 14.4b 实现 CMQ watchdog 消息，处理队列消息提前重新可见和 Worker 消失后的重投递
   - [x] 14.4c 实现 Worker 轮询腾讯云 Spot 回收 Metadata 并进入 draining
-  - [ ] 14.4 Spot 回收或强杀 Worker 后任务重新投递的真实云上模拟测试
+  - [x] 14.4 Spot 回收或强杀 Worker 后任务重新投递的真实云上模拟测试：`jobId=41e5772e-10e1-4e02-9fe9-5297f32f8bcc`，`worker-cvm-ins-i7cslhse` 被释放后由 `worker-cvm-ins-a8k745rc` 以 attempts=2 完成
   - [ ] 14.5 微信支付沙箱或测试商户回调测试
   - [ ] 14.6 客户回调失败重试测试
   - _Requirements: 1.1-10.5_
@@ -176,6 +176,7 @@
   - [x] 15.18b 在 CAM 绑定最小权限策略，验证后移除临时 `QcloudASFullAccess`：`jobId=5dd794c5-83eb-4870-8182-c365b5855cdb`，`workerId=worker-cvm-ins-m6q6mezk`
   - [x] 15.19 将 CAM 子账号临时 `QcloudTATFullAccess` 移除，运行时账号仅保留 AS 最小权限和 runtime 策略
   - [ ] 15.20 最终确认后释放 Worker 基准机 `ins-big9dirk`
+  - [x] 15.21 完成真实强杀 Worker 恢复演练，并在演练后将 `asg-pj6qaput` 缩回 `0/0`：`jobId=41e5772e-10e1-4e02-9fe9-5297f32f8bcc`
   - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 
 ## Notes

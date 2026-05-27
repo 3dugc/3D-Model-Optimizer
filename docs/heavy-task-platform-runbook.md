@@ -302,6 +302,32 @@ healthStatus=ok
 - 清理后 `modeloptimizer` 只保留 AS 最小权限策略和 COS/CMQ runtime 策略。
 - 入口 API 健康检查正常。
 
+已完成真实强杀 Worker 恢复验证：
+
+```text
+jobId=41e5772e-10e1-4e02-9fe9-5297f32f8bcc
+asGroup=asg-pj6qaput
+inputBytes=97931468
+gridSize=1650
+firstWorkerId=worker-cvm-ins-i7cslhse
+interruptedAt=2026-05-27 22:28:20 CST
+recoveryObservedAt=2026-05-27 22:33:20 CST
+secondWorkerId=worker-cvm-ins-a8k745rc
+status=succeeded
+attempts=2
+outputKey=tenants/spot-recovery-test/jobs/41e5772e-10e1-4e02-9fe9-5297f32f8bcc/output/model.glb
+reportKey=tenants/spot-recovery-test/jobs/41e5772e-10e1-4e02-9fe9-5297f32f8bcc/output/report.json
+```
+
+验证过程：
+
+- 提交一个低于当前 100 MiB 输入上限的真实 GLB 任务，Dispatcher 自动将 `asg-pj6qaput` 从 `0` 扩到 `1`。
+- 第一台 Worker `worker-cvm-ins-i7cslhse` claim 任务后，通过 AS 将 desired capacity 临时打到 `0`，模拟竞价实例回收或强制释放。
+- 任务保持旧 Worker 的 `processing` 租约，等待 `JOB_LEASE_SECONDS=300` 到期，期间新 Worker 不会并发处理同一个 Job。
+- 租约过期后，CMQ watchdog 和过期恢复逻辑重新投递任务，新 Worker `worker-cvm-ins-a8k745rc` 以 attempts=2 接手并成功写出 COS 结果。
+- 测试完成后已手动将 `asg-pj6qaput` 缩回 `desired=0`、`inService=0`，避免继续产生 Worker 实例费用。
+- 演练中额外验证了 116,554,268 bytes 输入会被当前 100 MiB 上限拒绝，任务按 `JOB_MAX_ATTEMPTS=3` 重试后进入 `failed`，不作为恢复通过记录。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：

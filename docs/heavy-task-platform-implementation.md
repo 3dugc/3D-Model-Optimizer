@@ -17,11 +17,11 @@
 - `optimizer-dispatcher` 已部署到 Portainer，会按数据库中的 Job backlog 自动调整 AS desired capacity。
 - 运行时 CAM 子账号 `modeloptimizer` 已移除临时 `QcloudASFullAccess` 和 `QcloudTATFullAccess`，只保留 AS 最小权限和 COS/CMQ runtime 策略。
 - 已完成多次真实 smoke test，验证链路为：提交任务、Dispatcher 自动扩容、Worker 处理、COS 写回、状态更新、Dispatcher 缩容。
+- 已完成真实强杀 Worker 恢复演练，验证 Worker 被释放后任务会在租约过期后重新投递，并由新 Worker 接手完成。
 
 待落地：
 
 - 将永久 CAM Secret 迁移到更安全的角色、STS 或密钥管理方案。
-- 验证真实 Spot 回收或强杀 Worker 时任务能重新投递并被新 Worker 接手。
 - 最终确认后释放 Worker 基准机 `ins-big9dirk`。
 - 接入微信 Native 支付和外部客户回调密钥管理。
 - 给外部系统开放 COS-only manifest 接入或正式 STS 直传接入。
@@ -291,12 +291,11 @@ tenants/{tenantId}/jobs/{jobId}/output/report.json
 优先级建议：
 
 1. 将永久 CAM Secret 迁移到角色、STS 或密钥管理。
-2. 验证 Spot 回收/强杀 Worker 的任务恢复。
-3. 最终确认后释放 Worker 基准机 `ins-big9dirk`。
-4. 接入微信 Native 支付和订单状态机。
-5. 开放外部系统 API Key、回调签名和回调重放。
-6. 支持 COS-only manifest 接入。
-7. 评估把 BF1 蜂驰 Worker 池加入 Dispatcher fallback 列表。
+2. 最终确认后释放 Worker 基准机 `ins-big9dirk`。
+3. 接入微信 Native 支付和订单状态机。
+4. 开放外部系统 API Key、回调签名和回调重放。
+5. 支持 COS-only manifest 接入。
+6. 评估把 BF1 蜂驰 Worker 池加入 Dispatcher fallback 列表。
 
 ## 相关文档
 
