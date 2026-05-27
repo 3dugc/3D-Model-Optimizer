@@ -164,7 +164,7 @@
   - [x] 15.13 将 CI 镜像 tag 策略改为只推 `latest`，不再生成短哈希 tag
   - [x] 15.14 增加腾讯镜像仓库 `sha-*` tag 手动清理 workflow
   - [ ] 15.15 将入口 Stack 和 Worker 基准镜像切到 `latest`
-  - [ ] 15.16 执行腾讯镜像仓库短哈希 tag 清理
+  - [x] 15.16 执行腾讯镜像仓库短哈希 tag 清理，已删除 13 个 `sha-*` tag
   - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
   - [ ] 15.18 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
   - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除
