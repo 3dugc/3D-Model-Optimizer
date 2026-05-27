@@ -94,3 +94,11 @@ jobs:
           labels: ${{ steps.meta-tencent.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Delete Tencent short-hash tags
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        env:
+          TENCENT_REGISTRY_USERNAME: ${{ secrets.TENCENT_REGISTRY_USERNAME }}
+          TENCENT_REGISTRY_PASSWORD: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+          DRY_RUN: 'false'
+        run: node .github/scripts/cleanup-tencent-sha-tags.mjs
