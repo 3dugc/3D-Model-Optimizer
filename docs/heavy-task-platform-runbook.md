@@ -400,6 +400,38 @@ UPDATED_AT=2026-05-27 18:06 Asia/Shanghai
 - 启动配置未绑定公网 IP，Worker 只走内网访问 TDSQL-C/CMQ；COS 访问按腾讯云网络路径和账号权限处理。
 - 当前 CAM 子账号临时绑定了 `QcloudASFullAccess` 和 TAT 相关权限用于创建资源、远程排障和验证。正式接入 Dispatcher 前，应改成最小权限策略，只允许查询/修改指定伸缩组容量；TAT 权限只保留给人工运维账号或按需移除。
 
+## Dispatcher CAM 最小权限
+
+当前 Dispatcher 只需要查询伸缩组和修改期望实例数，不需要创建/删除伸缩组、启动配置、CVM、密钥或安全组。
+
+腾讯云 CAM 文档说明 AS 是资源级授权产品，`ModifyDesiredCapacity` 和 `DescribeAutoScalingGroups` 都支持按伸缩组资源六段式授权。当前生产策略文件见：
+
+```text
+infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json
+```
+
+当前策略只授权 SA9 兜底伸缩组：
+
+```text
+qcs::as:ap-nanjing:uin/59643:auto-scaling-group/asg-pj6qaput
+```
+
+权限收窄顺序：
+
+1. 在 CAM 创建自定义策略 `model-optimizer-dispatcher-as-minimal`，策略内容使用 `infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`。
+2. 先把该自定义策略绑定到运行时子账号 `modeloptimizer`，暂时保留 `QcloudASFullAccess`。
+3. 跑一次 Dispatcher smoke test，确认任务仍能把 `asg-pj6qaput` 从 `0` 自动扩到 `1`，完成后缩回 `0`。
+4. 测试通过后，再从运行时子账号移除 `QcloudASFullAccess`。
+5. 再跑一次 smoke test，确认最小权限策略独立可用。
+
+后续如果要让 Dispatcher 同时管理蜂驰池，需要先把对应伸缩组资源加入策略，再更新 Portainer 里的 `DISPATCHER_AS_GROUP_IDS`：
+
+```text
+asg-ov9ndzql   # BF1.LARGE8
+asg-o7ii5sub   # BF1.MEDIUM4
+asg-9f3nd5an   # BF1.MEDIUM2
+```
+
 ## 新服务接入模板
 
 新增一个重后端服务时，不复制整套基础设施，只新增 task handler 和配置。
