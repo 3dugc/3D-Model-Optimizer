@@ -205,6 +205,7 @@ tests/                   # Unit tests (231 of them, we're thorough)
 The async Tencent Cloud version is specified separately so the current local service can remain stable while the cloud runtime is built.
 
 - Architecture: [docs/tencent-cloud-architecture.md](docs/tencent-cloud-architecture.md)
+- Implementation guide: [docs/heavy-task-platform-implementation.md](docs/heavy-task-platform-implementation.md)
 - Deployment checklist: [docs/tencent-cloud-deployment-checklist.md](docs/tencent-cloud-deployment-checklist.md)
 - Spec: [.kiro/specs/tencent-cloud-elastic-optimizer](.kiro/specs/tencent-cloud-elastic-optimizer)
 - Local async runtime: `POST /api/v1/jobs`, `POST /api/v1/jobs/:jobId/complete-upload`, `GET /api/v1/jobs/:jobId`, `GET /api/v1/jobs/:jobId/result-url`
