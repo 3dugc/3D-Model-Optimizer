@@ -286,6 +286,22 @@ reportKey=tenants/elastic-worker-smoke/jobs/5dd794c5-83eb-4870-8182-c365b5855cdb
 - Worker `worker-cvm-ins-m6q6mezk` 成功处理任务；任务完成后 Dispatcher 自动缩回 `desired=0`、`inService=0`。
 - 由于最小权限只授权 `asg-pj6qaput`，后续使用该子账号查询 AS 时只能看到该伸缩组，这是预期现象。
 
+已完成运行时账号 TAT 权限清理：
+
+```text
+removedPolicy=QcloudTATFullAccess
+runtimeUser=modeloptimizer
+remainingPolicies=model-optimizer-dispatcher-as-minimal, model-optimizer-runtime-policy
+healthCheck=https://optimizer.7dgame.com/health
+healthStatus=ok
+```
+
+说明：
+
+- 运行时 Dispatcher 不需要 TAT 远程命令权限，TAT 应只保留给人工运维账号或按需临时授权。
+- 清理后 `modeloptimizer` 只保留 AS 最小权限策略和 COS/CMQ runtime 策略。
+- 入口 API 健康检查正常。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：
@@ -422,7 +438,7 @@ UPDATED_AT=2026-05-27 18:06 Asia/Shanghai
 - 镜像仓库只保留 `latest` 作为滚动 tag；短哈希 `sha-*` tag 用于历史调试的收益不抵腾讯仓库容量成本，后续不再生成，并由 CI 自动清理旧 `sha-*` tag。2026-05-27 已删除 13 个历史 `sha-*` tag。
 - `MAX_SIZE=3` 是成本保护阈值，压测前不要放大。
 - 启动配置未绑定公网 IP，Worker 只走内网访问 TDSQL-C/CMQ；COS 访问按腾讯云网络路径和账号权限处理。
-- 当前 CAM 子账号临时绑定了 `QcloudASFullAccess` 和 TAT 相关权限用于创建资源、远程排障和验证。正式接入 Dispatcher 前，应改成最小权限策略，只允许查询/修改指定伸缩组容量；TAT 权限只保留给人工运维账号或按需移除。
+- 当前运行时 CAM 子账号 `modeloptimizer` 已移除临时 `QcloudASFullAccess` 和 `QcloudTATFullAccess`，只保留 Dispatcher AS 最小权限策略与 COS/CMQ runtime 策略。TAT 权限只保留给人工运维账号或按需临时授权。
 
 ## Dispatcher CAM 最小权限
 

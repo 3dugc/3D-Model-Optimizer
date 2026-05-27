@@ -174,7 +174,7 @@
   - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
   - [x] 15.18a 准备 Dispatcher AS 最小权限策略文件 `infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`
   - [x] 15.18b 在 CAM 绑定最小权限策略，验证后移除临时 `QcloudASFullAccess`：`jobId=5dd794c5-83eb-4870-8182-c365b5855cdb`，`workerId=worker-cvm-ins-m6q6mezk`
-  - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除
+  - [x] 15.19 将 CAM 子账号临时 `QcloudTATFullAccess` 移除，运行时账号仅保留 AS 最小权限和 runtime 策略
   - [ ] 15.20 最终确认后释放 Worker 基准机 `ins-big9dirk`
   - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 

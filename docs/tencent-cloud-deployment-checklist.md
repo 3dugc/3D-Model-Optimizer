@@ -24,6 +24,7 @@
 - [x] 授权运行时读取 input bucket、写入 output bucket。
 - [x] 准备 Dispatcher AS 最小权限策略文件：`infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`。
 - [x] 在 CAM 绑定 Dispatcher AS 最小权限策略，并验证移除 `QcloudASFullAccess` 后仍可自动扩缩 Spot CVM：`jobId=5dd794c5-83eb-4870-8182-c365b5855cdb`，`workerId=worker-cvm-ins-m6q6mezk`。
+- [x] 从运行时 CAM 子账号移除 `QcloudTATFullAccess`；TAT 排障权限只保留给人工运维账号或按需临时授权。
 - [ ] 准备微信支付商户号、AppID、商户私钥、证书序列号、API v3 key。
 - [ ] 准备客户回调密钥管理方式。
 - [ ] 确认所有永久密钥只进入密钥管理或部署环境变量，不写入仓库。
