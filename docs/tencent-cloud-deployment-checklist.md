@@ -37,7 +37,7 @@
 - [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
 - [x] 入口 Stack 已切为 API-only，并部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-121dbaf`，健康检查通过。
-- [ ] 将入口 Stack 热修到 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`，当前 Stack 内容已准备好，待 Portainer 更新确认。
+- [x] 入口 Stack 已热修到 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`，健康检查通过。
 - [x] 入口域名 `https://optimizer.7dgame.com` 可访问。
 
 默认入口镜像：
