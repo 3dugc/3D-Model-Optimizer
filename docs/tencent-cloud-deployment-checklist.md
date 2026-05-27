@@ -39,6 +39,7 @@
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
 - [x] 入口 Stack 已切为 API-only，并部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-121dbaf`，健康检查通过。
 - [x] 入口 Stack 已热修到 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`，健康检查通过。
+- [x] 入口 Stack 已切回滚动镜像 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest`，健康检查通过。
 - [x] 入口域名 `https://optimizer.7dgame.com` 可访问。
 
 默认入口镜像：
@@ -149,6 +150,11 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已创建蜂驰 `BF1.LARGE8` Worker 池：`asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql`，启动配置 `asc-pf6hemad`。
 - [x] 已创建蜂驰 `BF1.MEDIUM4` Worker 池：`asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub`，启动配置 `asc-4clszyux`。
 - [x] 已创建蜂驰 `BF1.MEDIUM2` Worker 池：`asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an`，启动配置 `asc-idd0xj6b`。
+- [x] Worker 基准机已拉取 `latest` 并启动验证成功，随后创建 `latest` 版 Worker 镜像：`model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4`。
+- [x] 已切换 SA9 兜底 Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-sa9` / `asc-jhcn98fp`。
+- [x] 已切换蜂驰 `BF1.LARGE8` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-large8` / `asc-58tnbry1`。
+- [x] 已切换蜂驰 `BF1.MEDIUM4` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium4` / `asc-g810xf8d`。
+- [x] 已切换蜂驰 `BF1.MEDIUM2` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium2` / `asc-aigxhst7`。
 - [x] 记录当前 `BF1.LARGE8` 在南京一区竞价库存返回 `SpotSoldOut`，调度器需要规格 fallback。
 - [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
 - [ ] 从 `4C8G / WORKER_CONCURRENCY=1` 开始压测，再评估 `8C16G / WORKER_CONCURRENCY=2`。

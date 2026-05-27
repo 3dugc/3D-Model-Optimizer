@@ -47,11 +47,12 @@ flowchart LR
 | Worker 基准机 | `model-optimizer-worker-base` / `ins-big9dirk` | 制作 Worker 镜像的基准 CVM | 已停机，待确认后释放 |
 | Worker 基准机内网 | `10.206.0.21` | Worker 访问 DB/CMQ/COS | 已确认 |
 | Worker 基准机公网 | `119.45.240.220` | 临时管理入口 | 已确认 |
-| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 弹性 Worker 克隆源，当前应缓存 `latest` | 已验证，当前使用 |
-| 旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 上一版 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
+| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4` | 弹性 Worker 克隆源，缓存并运行 `latest` | 当前使用 |
+| 旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 上一版 Worker 克隆源 | 已被 `img-om8cggg4` 替代 |
+| 更旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 更早 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
 | 更旧 Worker 镜像 | `model-optimizer-worker-base-20260527` / `img-rxjo5rca` | 首版弹性 Worker 克隆源 | 已被 `img-hmvlx5n2` 替代 |
 | CVM 启动模板 | `lt-model-optimizer-worker-spot` | CVM 购买页保存的竞价模板 | 已保存 |
-| AS 启动配置 | `asc-model-optimizer-worker-spot-fix2-sa9` / `asc-onk753cj` | SA9 兜底弹性 Worker 配置 | 当前主兜底配置 |
+| AS 启动配置 | `asc-model-optimizer-worker-spot-latest1-sa9` / `asc-jhcn98fp` | SA9 兜底弹性 Worker 配置 | 当前主兜底配置 |
 | AS 伸缩组 | `asg-model-optimizer-worker-spot` / `asg-pj6qaput` | SA9 兜底 Worker 弹性池 | 已验证，`0/0` 起步 |
 | 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql` | `BF1.LARGE8` 低成本 Worker 池 | 已创建，当前库存售罄时保持 `0/0` |
 | 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub` | `BF1.MEDIUM4` 2C4G Worker 池 | 已创建，`0/0` 起步 |
@@ -202,6 +203,26 @@ reportKey=tenants/elastic-worker-smoke/jobs/8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4
 - 测试任务成功后伸缩组已缩回 `0`，基准机已停机。
 - 已额外创建 `BF1.LARGE8`、`BF1.MEDIUM4`、`BF1.MEDIUM2` 三档蜂驰 Worker 池，均为 `min=0`、`desired=0`。
 
+已完成一次 `latest` Worker 镜像滚动：
+
+```text
+workerBaseInstance=ins-big9dirk
+dockerImage=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest
+customImage=model-optimizer-worker-elastic-20260527-latest1 / img-om8cggg4
+sa9LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-sa9 / asc-jhcn98fp
+bf1Large8LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-large8 / asc-58tnbry1
+bf1Medium4LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium4 / asc-g810xf8d
+bf1Medium2LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium2 / asc-aigxhst7
+```
+
+验证过程：
+
+- 入口 Stack 已改为 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest`，`/health` 返回正常。
+- 基准机 `ins-big9dirk` 已拉取 `latest` 并用 `worker-cvm-ins-big9dirk` 启动 Worker 成功。
+- 从基准机创建自定义镜像 `img-om8cggg4`，并分别更新 SA9 兜底组和三档蜂驰 Worker 池启动配置。
+- 四个伸缩组当前均为 `min=0`、`desired=0`、`inService=0`、`max=3`。
+- 基准机 `ins-big9dirk` 已再次停机，只保留作后续镜像维护用途。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：
@@ -299,21 +320,21 @@ UPDATED_AT=2026-05-27 16:02 Asia/Shanghai
 当前新版 Worker 弹性池：
 
 ```text
-WORKER_IMAGE_ID=img-d9cslozu
-WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix2
+WORKER_IMAGE_ID=img-om8cggg4
+WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-latest1
 DOCKER_IMAGE=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest
 SA9_FALLBACK_AS_GROUP_ID=asg-pj6qaput
-SA9_FALLBACK_LAUNCH_CONFIGURATION_ID=asc-onk753cj
+SA9_FALLBACK_LAUNCH_CONFIGURATION_ID=asc-jhcn98fp
 BF1_LARGE8_AS_GROUP_ID=asg-ov9ndzql
-BF1_LARGE8_LAUNCH_CONFIGURATION_ID=asc-pf6hemad
+BF1_LARGE8_LAUNCH_CONFIGURATION_ID=asc-58tnbry1
 BF1_MEDIUM4_AS_GROUP_ID=asg-o7ii5sub
-BF1_MEDIUM4_LAUNCH_CONFIGURATION_ID=asc-4clszyux
+BF1_MEDIUM4_LAUNCH_CONFIGURATION_ID=asc-g810xf8d
 BF1_MEDIUM2_AS_GROUP_ID=asg-9f3nd5an
-BF1_MEDIUM2_LAUNCH_CONFIGURATION_ID=asc-idd0xj6b
+BF1_MEDIUM2_LAUNCH_CONFIGURATION_ID=asc-aigxhst7
 MIN_SIZE=0
 DESIRED_CAPACITY=0
 MAX_SIZE=3
-UPDATED_AT=2026-05-27 17:05 Asia/Shanghai
+UPDATED_AT=2026-05-27 17:48 Asia/Shanghai
 ```
 
 说明：

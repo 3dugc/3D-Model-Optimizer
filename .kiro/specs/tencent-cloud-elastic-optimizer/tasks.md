@@ -163,8 +163,11 @@
   - [x] 15.12 将入口 Stack 热修到 `sha-d465f02` 并确认健康检查
   - [x] 15.13 将 CI 镜像 tag 策略改为只推 `latest`，不再生成短哈希 tag
   - [x] 15.14 增加腾讯镜像仓库 `sha-*` tag 手动清理 workflow
-  - [ ] 15.15 将入口 Stack 和 Worker 基准镜像切到 `latest`
+  - [x] 15.15 将入口 Stack 和 Worker 基准镜像切到 `latest`
   - [x] 15.16 执行腾讯镜像仓库短哈希 tag 清理，已删除 13 个 `sha-*` tag
+  - [x] 15.16a 从切到 `latest` 的基准机创建新版 Worker 镜像 `model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4`
+  - [x] 15.16b 将 SA9 和三档蜂驰 AS 伸缩组切到 `latest1` 镜像启动配置：`asc-jhcn98fp`、`asc-58tnbry1`、`asc-g810xf8d`、`asc-aigxhst7`
+  - [x] 15.16c 确认四个 Worker 伸缩组容量均为 `0/0`，并再次停止 Worker 基准机 `ins-big9dirk`
   - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
   - [ ] 15.18 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
   - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除
