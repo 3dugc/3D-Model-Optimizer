@@ -19,6 +19,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+deploy/**/*.env
+!deploy/**/*.env.example
 
 # Logs
 logs/

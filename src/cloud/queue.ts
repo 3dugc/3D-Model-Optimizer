@@ -76,7 +76,14 @@ export class TencentCmqQueueProvider implements QueueProvider {
     }
     const job = await this.store.claim(received.body.jobId, input);
     if (!job) {
-      if (isTerminalJobStatus(existing.status) || existing.status !== 'retry_wait') {
+      const latest = (await this.store.get(received.body.jobId)) || existing;
+      if (isTerminalJobStatus(latest.status)) {
+        await this.client.deleteMessage(received.receiptHandle);
+      } else if (latest.status === 'processing') {
+        await this.deferWatchdogMessage(received.receiptHandle, latest);
+      } else if (latest.status === 'retry_wait') {
+        await this.deferWatchdogMessage(received.receiptHandle, latest);
+      } else {
         await this.client.deleteMessage(received.receiptHandle);
       }
       return undefined;
@@ -111,6 +118,29 @@ export class TencentCmqQueueProvider implements QueueProvider {
     this.receipts.delete(jobId);
     await this.client.deleteMessage(receiptHandle);
   }
+
+  private async deferWatchdogMessage(receiptHandle: string, job: CloudJob): Promise<void> {
+    await this.client.deleteMessage(receiptHandle);
+    await this.publish(
+      {
+        jobId: job.id,
+        tenantId: job.tenantId,
+        taskType: job.taskType,
+        attempt: job.attempts,
+        traceId: job.externalJobId,
+      },
+      { delaySeconds: delaySecondsForJobWatchdog(job) }
+    );
+  }
+}
+
+function delaySecondsForJobWatchdog(job: CloudJob): number {
+  const candidates = [job.leaseExpiresAt, job.queuedAt]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => Math.ceil((new Date(value).getTime() - Date.now()) / 1000))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  if (!candidates.length) return 10;
+  return Math.min(900, Math.max(1, Math.min(...candidates)));
 }
 
 function createTencentCmqClient(): TencentCmqClient {

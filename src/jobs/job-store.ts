@@ -3,7 +3,13 @@ import * as path from 'path';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import type { QueryResultRow } from 'pg';
 import { config } from '../config';
-import type { ClaimJobInput, CloudJob, CloudJobStatus } from './types';
+import type {
+  ClaimJobInput,
+  CloudJob,
+  CloudJobStatus,
+  RecoverExpiredJobLeasesInput,
+  RenewJobLeaseInput,
+} from './types';
 import { assertJobStatusTransition } from './state-machine';
 import { ensureMySqlSchema, getMySqlPool, mysqlDateTime, withMySqlTransaction, type MySqlQueryable } from '../database/mysql';
 import { ensurePostgresSchema, getPostgresPool, withPostgresTransaction, type SqlQueryable } from '../database/postgres';
@@ -16,6 +22,8 @@ export interface JobStore {
   transition(jobId: string, status: CloudJobStatus, updates?: Partial<CloudJob>): Promise<CloudJob>;
   claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined>;
   claimNext(input: ClaimJobInput): Promise<CloudJob | undefined>;
+  renewLease(jobId: string, input: RenewJobLeaseInput): Promise<CloudJob | undefined>;
+  recoverExpiredLeases(input?: RecoverExpiredJobLeasesInput): Promise<CloudJob[]>;
   list(): Promise<CloudJob[]>;
 }
 
@@ -25,6 +33,82 @@ interface JobStoreFile {
 
 async function ensureParentDir(filePath: string): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+}
+
+function defaultLeaseDurationMs(): number {
+  return config.cloud.jobLeaseSeconds * 1000;
+}
+
+function resolveLeaseDurationMs(value?: number): number {
+  return Math.max(1000, value ?? defaultLeaseDurationMs());
+}
+
+function addMs(date: Date, ms: number): string {
+  return new Date(date.getTime() + ms).toISOString();
+}
+
+function isRetryReady(job: CloudJob, now: Date): boolean {
+  return !job.queuedAt || new Date(job.queuedAt).getTime() <= now.getTime();
+}
+
+function isProcessingLeaseExpired(job: CloudJob, now: Date): boolean {
+  if (job.status !== 'processing') return false;
+  if (job.leaseExpiresAt) {
+    return new Date(job.leaseExpiresAt).getTime() <= now.getTime();
+  }
+  if (job.lastHeartbeatAt) {
+    return new Date(job.lastHeartbeatAt).getTime() + defaultLeaseDurationMs() <= now.getTime();
+  }
+  if (job.startedAt) {
+    return new Date(job.startedAt).getTime() + config.cloud.jobTimeoutSeconds * 1000 <= now.getTime();
+  }
+  return false;
+}
+
+function canClaimJob(job: CloudJob, now: Date): boolean {
+  if (job.status === 'queued') return true;
+  if (job.status === 'retry_wait') return isRetryReady(job, now);
+  if (job.status === 'processing') return isProcessingLeaseExpired(job, now) && job.attempts < job.maxAttempts;
+  return false;
+}
+
+function buildClaimedJob(current: CloudJob, input: ClaimJobInput, now: Date): CloudJob {
+  const nowIso = now.toISOString();
+  assertJobStatusTransition(current.status, 'processing');
+  return {
+    ...current,
+    status: 'processing',
+    workerId: input.workerId,
+    attempts: current.attempts + 1,
+    startedAt: nowIso,
+    leaseExpiresAt: addMs(now, resolveLeaseDurationMs(input.leaseDurationMs)),
+    lastHeartbeatAt: nowIso,
+    errorCode: undefined,
+    errorMessage: undefined,
+  };
+}
+
+function recoverExpiredLeaseJob(job: CloudJob, now: Date, reason?: string): CloudJob | undefined {
+  if (!isProcessingLeaseExpired(job, now)) return undefined;
+  const nowIso = now.toISOString();
+  const retryable = job.attempts < job.maxAttempts;
+  const status: CloudJobStatus = retryable ? 'retry_wait' : 'failed';
+  assertJobStatusTransition(job.status, status);
+  return {
+    ...job,
+    status,
+    workerId: retryable ? undefined : job.workerId,
+    leaseExpiresAt: undefined,
+    lastHeartbeatAt: nowIso,
+    queuedAt: retryable ? nowIso : job.queuedAt,
+    completedAt: retryable ? undefined : nowIso,
+    errorCode: 'WORKER_LEASE_EXPIRED',
+    errorMessage: reason || `Worker lease expired for ${job.workerId || 'unknown worker'}`,
+  };
+}
+
+function ignoreRecoverRace(error: unknown): void {
+  void error;
 }
 
 export class LocalJobStore implements JobStore {
@@ -79,24 +163,13 @@ export class LocalJobStore implements JobStore {
   async claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined> {
     const data = await this.read();
     const now = input.now ?? new Date();
-    const nowIso = now.toISOString();
     const index = data.jobs.findIndex((job) => job.id === jobId);
     if (index < 0) return undefined;
 
     const current = data.jobs[index];
-    if (current.status !== 'queued' && current.status !== 'retry_wait') return undefined;
-    if (current.status === 'retry_wait' && current.queuedAt && new Date(current.queuedAt).getTime() > now.getTime()) {
-      return undefined;
-    }
+    if (!canClaimJob(current, now)) return undefined;
 
-    assertJobStatusTransition(current.status, 'processing');
-    const updated: CloudJob = {
-      ...current,
-      status: 'processing',
-      workerId: input.workerId,
-      attempts: current.attempts + 1,
-      startedAt: nowIso,
-    };
+    const updated = buildClaimedJob(current, input, now);
     data.jobs[index] = updated;
     await this.write(data);
     return updated;
@@ -105,27 +178,46 @@ export class LocalJobStore implements JobStore {
   async claimNext(input: ClaimJobInput): Promise<CloudJob | undefined> {
     const data = await this.read();
     const now = input.now ?? new Date();
-    const nowIso = now.toISOString();
-    const index = data.jobs.findIndex((job) => {
-      if (job.status === 'queued') return true;
-      if (job.status !== 'retry_wait') return false;
-      if (!job.queuedAt) return true;
-      return new Date(job.queuedAt).getTime() <= now.getTime();
-    });
+    const index = data.jobs.findIndex((job) => canClaimJob(job, now));
     if (index < 0) return undefined;
 
     const current = data.jobs[index];
-    assertJobStatusTransition(current.status, 'processing');
+    const updated = buildClaimedJob(current, input, now);
+    data.jobs[index] = updated;
+    await this.write(data);
+    return updated;
+  }
+
+  async renewLease(jobId: string, input: RenewJobLeaseInput): Promise<CloudJob | undefined> {
+    const data = await this.read();
+    const now = input.now ?? new Date();
+    const index = data.jobs.findIndex((job) => job.id === jobId);
+    if (index < 0) return undefined;
+    const current = data.jobs[index];
+    if (current.status !== 'processing' || current.workerId !== input.workerId) return undefined;
     const updated: CloudJob = {
       ...current,
-      status: 'processing',
-      workerId: input.workerId,
-      attempts: current.attempts + 1,
-      startedAt: nowIso,
+      lastHeartbeatAt: now.toISOString(),
+      leaseExpiresAt: addMs(now, resolveLeaseDurationMs(input.leaseDurationMs)),
     };
     data.jobs[index] = updated;
     await this.write(data);
     return updated;
+  }
+
+  async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
+    const data = await this.read();
+    const now = input.now ?? new Date();
+    const limit = Math.max(1, input.limit ?? 50);
+    const recovered: CloudJob[] = [];
+    for (let index = 0; index < data.jobs.length && recovered.length < limit; index += 1) {
+      const updated = recoverExpiredLeaseJob(data.jobs[index], now, input.reason);
+      if (!updated) continue;
+      data.jobs[index] = updated;
+      recovered.push(updated);
+    }
+    if (recovered.length) await this.write(data);
+    return recovered;
   }
 
   async list(): Promise<CloudJob[]> {
@@ -301,26 +393,15 @@ export class PostgresJobStore implements JobStore {
   async claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined> {
     return withPostgresTransaction(async (client) => {
       const now = input.now ?? new Date();
-      const nowIso = now.toISOString();
       const result = await client.query<JobRow>('SELECT job_json FROM optimizer_jobs WHERE id = $1 FOR UPDATE', [
         jobId,
       ]);
       if (!result.rows[0]) return undefined;
 
       const current = jobFromRow(result.rows[0]);
-      if (current.status !== 'queued' && current.status !== 'retry_wait') return undefined;
-      if (current.status === 'retry_wait' && current.queuedAt && new Date(current.queuedAt).getTime() > now.getTime()) {
-        return undefined;
-      }
+      if (!canClaimJob(current, now)) return undefined;
 
-      assertJobStatusTransition(current.status, 'processing');
-      const updated: CloudJob = {
-        ...current,
-        status: 'processing',
-        workerId: input.workerId,
-        attempts: current.attempts + 1,
-        startedAt: nowIso,
-      };
+      const updated = buildClaimedJob(current, input, now);
       return upsertJobRow(client, updated);
     });
   }
@@ -328,32 +409,70 @@ export class PostgresJobStore implements JobStore {
   async claimNext(input: ClaimJobInput): Promise<CloudJob | undefined> {
     return withPostgresTransaction(async (client) => {
       const now = input.now ?? new Date();
-      const nowIso = now.toISOString();
       const result = await client.query<JobRow>(
         `
           SELECT job_json
           FROM optimizer_jobs
-          WHERE status = 'queued'
-            OR (status = 'retry_wait' AND (queued_at IS NULL OR queued_at <= $1))
-          ORDER BY COALESCE(queued_at, created_at), created_at
+          WHERE status IN ('queued', 'retry_wait', 'processing')
+          ORDER BY
+            CASE status WHEN 'queued' THEN 0 WHEN 'retry_wait' THEN 1 ELSE 2 END,
+            COALESCE(queued_at, created_at),
+            created_at
           FOR UPDATE SKIP LOCKED
-          LIMIT 1
+          LIMIT 25
         `,
-        [nowIso]
+        []
       );
-      if (!result.rows[0]) return undefined;
+      const current = result.rows.map(jobFromRow).find((job) => canClaimJob(job, now));
+      if (!current) return undefined;
 
+      const updated = buildClaimedJob(current, input, now);
+      return upsertJobRow(client, updated);
+    });
+  }
+
+  async renewLease(jobId: string, input: RenewJobLeaseInput): Promise<CloudJob | undefined> {
+    return withPostgresTransaction(async (client) => {
+      const now = input.now ?? new Date();
+      const result = await client.query<JobRow>('SELECT job_json FROM optimizer_jobs WHERE id = $1 FOR UPDATE', [
+        jobId,
+      ]);
+      if (!result.rows[0]) return undefined;
       const current = jobFromRow(result.rows[0]);
-      assertJobStatusTransition(current.status, 'processing');
+      if (current.status !== 'processing' || current.workerId !== input.workerId) return undefined;
       const updated: CloudJob = {
         ...current,
-        status: 'processing',
-        workerId: input.workerId,
-        attempts: current.attempts + 1,
-        startedAt: nowIso,
+        lastHeartbeatAt: now.toISOString(),
+        leaseExpiresAt: addMs(now, resolveLeaseDurationMs(input.leaseDurationMs)),
       };
       return upsertJobRow(client, updated);
     });
+  }
+
+  async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
+    const now = input.now ?? new Date();
+    const limit = Math.max(1, input.limit ?? 50);
+    const result = await this.client.query<JobRow>(
+      `
+        SELECT job_json
+        FROM optimizer_jobs
+        WHERE status = 'processing'
+        ORDER BY started_at NULLS FIRST, created_at
+        LIMIT $1
+      `,
+      [limit]
+    );
+    const recovered: CloudJob[] = [];
+    for (const row of result.rows) {
+      const updated = recoverExpiredLeaseJob(jobFromRow(row), now, input.reason);
+      if (!updated) continue;
+      try {
+        recovered.push(await this.transition(updated.id, updated.status, updated));
+      } catch (error) {
+        ignoreRecoverRace(error);
+      }
+    }
+    return recovered;
   }
 
   async list(): Promise<CloudJob[]> {
@@ -508,26 +627,15 @@ export class MySqlJobStore implements JobStore {
   async claim(jobId: string, input: ClaimJobInput): Promise<CloudJob | undefined> {
     return withMySqlTransaction(async (client) => {
       const now = input.now ?? new Date();
-      const nowIso = now.toISOString();
       const [rows] = await client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ? FOR UPDATE', [
         jobId,
       ]);
       if (!rows[0]) return undefined;
 
       const current = mysqlJobFromRow(rows[0]);
-      if (current.status !== 'queued' && current.status !== 'retry_wait') return undefined;
-      if (current.status === 'retry_wait' && current.queuedAt && new Date(current.queuedAt).getTime() > now.getTime()) {
-        return undefined;
-      }
+      if (!canClaimJob(current, now)) return undefined;
 
-      assertJobStatusTransition(current.status, 'processing');
-      const updated: CloudJob = {
-        ...current,
-        status: 'processing',
-        workerId: input.workerId,
-        attempts: current.attempts + 1,
-        startedAt: nowIso,
-      };
+      const updated = buildClaimedJob(current, input, now);
       return updateMySqlJobRow(client, updated);
     });
   }
@@ -535,32 +643,70 @@ export class MySqlJobStore implements JobStore {
   async claimNext(input: ClaimJobInput): Promise<CloudJob | undefined> {
     return withMySqlTransaction(async (client) => {
       const now = input.now ?? new Date();
-      const nowIso = now.toISOString();
       const [rows] = await client.execute<MySqlJobRow[]>(
         `
           SELECT job_json
           FROM optimizer_jobs
-          WHERE status = 'queued'
-            OR (status = 'retry_wait' AND (queued_at IS NULL OR queued_at <= ?))
-          ORDER BY COALESCE(queued_at, created_at), created_at
-          LIMIT 1
+          WHERE status IN ('queued', 'retry_wait', 'processing')
+          ORDER BY
+            CASE status WHEN 'queued' THEN 0 WHEN 'retry_wait' THEN 1 ELSE 2 END,
+            COALESCE(queued_at, created_at),
+            created_at
+          LIMIT 25
           FOR UPDATE SKIP LOCKED
         `,
-        [mysqlDateTime(nowIso)]
+        []
       );
-      if (!rows[0]) return undefined;
+      const current = rows.map(mysqlJobFromRow).find((job) => canClaimJob(job, now));
+      if (!current) return undefined;
 
+      const updated = buildClaimedJob(current, input, now);
+      return updateMySqlJobRow(client, updated);
+    });
+  }
+
+  async renewLease(jobId: string, input: RenewJobLeaseInput): Promise<CloudJob | undefined> {
+    return withMySqlTransaction(async (client) => {
+      const now = input.now ?? new Date();
+      const [rows] = await client.execute<MySqlJobRow[]>('SELECT job_json FROM optimizer_jobs WHERE id = ? FOR UPDATE', [
+        jobId,
+      ]);
+      if (!rows[0]) return undefined;
       const current = mysqlJobFromRow(rows[0]);
-      assertJobStatusTransition(current.status, 'processing');
+      if (current.status !== 'processing' || current.workerId !== input.workerId) return undefined;
       const updated: CloudJob = {
         ...current,
-        status: 'processing',
-        workerId: input.workerId,
-        attempts: current.attempts + 1,
-        startedAt: nowIso,
+        lastHeartbeatAt: now.toISOString(),
+        leaseExpiresAt: addMs(now, resolveLeaseDurationMs(input.leaseDurationMs)),
       };
       return updateMySqlJobRow(client, updated);
     });
+  }
+
+  async recoverExpiredLeases(input: RecoverExpiredJobLeasesInput = {}): Promise<CloudJob[]> {
+    const now = input.now ?? new Date();
+    const limit = Math.max(1, input.limit ?? 50);
+    const [rows] = await this.client.execute<MySqlJobRow[]>(
+      `
+        SELECT job_json
+        FROM optimizer_jobs
+        WHERE status = 'processing'
+        ORDER BY started_at, created_at
+        LIMIT ?
+      `,
+      [limit]
+    );
+    const recovered: CloudJob[] = [];
+    for (const row of rows) {
+      const updated = recoverExpiredLeaseJob(mysqlJobFromRow(row), now, input.reason);
+      if (!updated) continue;
+      try {
+        recovered.push(await this.transition(updated.id, updated.status, updated));
+      } catch (error) {
+        ignoreRecoverRace(error);
+      }
+    }
+    return recovered;
   }
 
   async list(): Promise<CloudJob[]> {

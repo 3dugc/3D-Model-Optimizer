@@ -6,6 +6,11 @@ export interface WorkerRuntimeConfig {
   concurrency: number;
   heartbeatIntervalMs: number;
   jobTimeoutMs: number;
+  jobLeaseMs: number;
+  expiredJobRecoveryIntervalMs: number;
+  idleExitMs?: number;
+  spotTerminationCheckUrl?: string;
+  spotTerminationPollMs: number;
 }
 
 export interface WorkerHeartbeat {

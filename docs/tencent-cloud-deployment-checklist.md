@@ -1,16 +1,19 @@
 # 腾讯云部署清单
 
-本文档是弹性优化服务上线前的部署检查表。详细设计见 `docs/tencent-cloud-architecture.md` 和 `.kiro/specs/tencent-cloud-elastic-optimizer`。
+本文档是弹性优化服务上线前的部署检查表。详细设计见 `docs/tencent-cloud-architecture.md`、`docs/heavy-task-platform-runbook.md` 和 `.kiro/specs/tencent-cloud-elastic-optimizer`。
 
 ## 1. 基础资源
 
 - [x] 创建专用 COS bucket：`model-optimizer-1251022382`，南京 `ap-nanjing`，私有读写，单 AZ。
-- [x] 确认 input/output 共用专用 bucket，并用 `optimizer/input/`、`optimizer/output/` 前缀隔离。
+- [x] 确认 input/output 共用专用 bucket；当前实现使用 `tenants/{tenantId}/jobs/{jobId}/...` 前缀隔离输入、输出和报告。
 - [x] 配置 COS CORS，允许 `https://*.7dgame.com`、`http://localhost:3000`、`http://localhost:5173` 直传；Methods：`PUT/GET/POST/HEAD`，Allow-Headers：`*`，Max-Age：`3600`。
 - [x] 创建 TDMQ/CMQ 队列：`optimizer-jobs`，南京地域。
 - [x] 配置死信队列：`optimizer-jobs-dlq`，并关联主队列。
 - [x] 记录 CMQ API 地址：公网 `https://cmq-nj.public.tencenttdmq.com`；腾讯云内网 `http://nj.mqadapter.cmq.tencentyun.com`。
-- [ ] 创建或复用 TencentDB MySQL 8.0 实例，用于 tenants、jobs、orders、workers、callbacks。
+- [x] 复用 TDSQL-C MySQL 8.0 集群 `cynosdbmysql-o6c4ezij`，用于 tenants、jobs、orders、workers、callbacks。
+- [x] 创建通用任务平台数据库：`async_task_platform`。
+- [x] 创建运行时数据库账号：`async_task_runtime@%`，密码只配置在部署环境中，不写入仓库。
+- [x] 确认云内网数据库地址：`10.206.0.5:3306`。
 - [x] 代码支持 MySQL/Postgres 共享状态库，自动建表 `optimizer_jobs`、`optimizer_orders`、`optimizer_workers`、`optimizer_callback_deliveries`。
 - [ ] 创建 CLS 日志主题和必要监控告警。
 
@@ -33,7 +36,8 @@
 - [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
 - [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
-- [x] 入口 Stack 已部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-dfe07b5`，健康检查通过。
+- [x] 入口 Stack 已部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-5ec7375`，健康检查通过。
+- [x] 入口域名 `https://optimizer.7dgame.com` 可访问。
 
 默认入口镜像：
 
@@ -89,6 +93,10 @@ WORKER_ID=
 WORKER_CONCURRENCY=1
 WORKER_HEARTBEAT_INTERVAL_MS=10000
 WORKER_JOB_TIMEOUT_MS=1800000
+JOB_LEASE_SECONDS=300
+EXPIRED_JOB_RECOVERY_INTERVAL_SECONDS=30
+WORKER_SPOT_TERMINATION_CHECK_URL=http://metadata.tencentyun.com/latest/meta-data/spot/termination-time
+WORKER_SPOT_TERMINATION_POLL_MS=5000
 
 DATABASE_URL=mysql://user:password@mysql-host:3306/optimizer
 STATE_STORE_PROVIDER=mysql
@@ -111,13 +119,34 @@ CALLBACK_MAX_ATTEMPTS=6
 
 ## 6. 弹性计算
 
-- [ ] 构建并推送 Docker Worker 镜像。
-- [ ] 本地联调用 `docker compose -f docker-compose.cloud.yml up --build` 验证 API + Worker。
-- [ ] 选择 Batch 作业模式或 Spot CVM Worker 池模式。
-- [ ] 从 `8C16G / WORKER_CONCURRENCY=2` 开始压测。
-- [ ] 配置最大实例数，避免成本失控。
+- [x] 构建并推送 Docker Worker 镜像。
+- [x] 本地联调用 `docker compose -f docker-compose.cloud.yml up --build` 验证 API + Worker。
+- [x] 当前选择 TDMQ/CMQ + Spot CVM Worker 池模式，Batch 保留为后续调度后端。
+- [x] 新建 Worker 基准机 `model-optimizer-worker-base` / `ins-big9dirk`，规格 `4C8G`，内网 `10.206.0.21`。
+- [x] 基准机安装 Docker，并配置腾讯云镜像仓库拉取权限。
+- [x] 基准机配置 systemd 服务 `model-optimizer-worker.service`。
+- [x] 远程 Worker 真实 smoke test 成功：`jobId=9fbd477f-62e6-4044-9c2c-5f7cc6f97b79`，`workerId=worker-cvm-ins-big9dirk`。
+- [x] 已手动停止入口服务器上的 `optimizer-worker` 容器，避免入口机处理重任务。
+- [ ] 从 Portainer 入口 Stack 中永久移除 `optimizer-worker` 服务。
+- [x] 基准机启动脚本改为按腾讯云 metadata 自动生成唯一 `WORKER_ID`。
+- [x] 已发起从基准机创建自定义镜像：`model-optimizer-worker-base-20260527` / `img-rxjo5rca`。
+- [x] 自定义镜像 `img-rxjo5rca` 状态已变为正常。
+- [x] 已保存 CVM 竞价启动模板：`lt-model-optimizer-worker-spot`，使用自定义镜像 `img-rxjo5rca`，无公网 IP。
+- [x] 已创建 AS 启动配置：`asc-model-optimizer-worker-spot` / `asc-lwvidj3l`。
+- [x] 已创建 AS 伸缩组：`asg-model-optimizer-worker-spot` / `asg-pj6qaput`。
+- [x] 已停止 Worker 基准机 `ins-big9dirk`，等待最终确认后释放。
+- [x] 已用 AS 伸缩组从 `0` 扩到 `1` 跑通真实弹性 Worker smoke test：`jobId=c7d3a25c-bd9a-4df0-aa90-b573c684b09d`。
+- [x] 已修复首版 Worker 镜像启动问题：shell 变量错误转义、无公网实例 `--pull always` 拉仓库超时。
+- [x] 已创建修复后 Worker 镜像：`model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2`。
+- [x] 已创建并切换 AS 启动配置：`asc-model-optimizer-worker-spot-fix1` / `asc-rkmzzkyj`。
+- [x] 已验证新镜像冷启动实例 `ins-fss90ts4` 自动启动 `model-optimizer-worker.service`。
+- [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
+- [ ] 从 `4C8G / WORKER_CONCURRENCY=1` 开始压测，再评估 `8C16G / WORKER_CONCURRENCY=2`。
+- [x] 配置最大实例数，避免成本失控。
 - [ ] 配置缩容 drain 时间，让 Worker 停止领取新任务。
-- [ ] 验证 Spot 回收或强杀 Worker 后任务会重新投递。
+- [x] Worker 已支持 job 租约、续租、过期恢复和 CMQ watchdog 消息。
+- [x] Worker 已支持轮询腾讯云 Spot 回收 Metadata，收到回收通知后进入 draining。
+- [ ] 在真实 Spot 回收或强杀 Worker 场景验证任务会重新投递并被新 Worker 接手。
 
 ## 7. API 验收
 
@@ -127,8 +156,8 @@ CALLBACK_MAX_ATTEMPTS=6
 - [ ] 未注册 task type 会被拒绝。
 - [ ] 外部系统可用临时密钥上传模型到 COS。
 - [ ] COS 事件或 `complete-upload` 可触发入队。
-- [ ] Worker 可通过 `TDMQ/CMQ` 消费任务并写回 output bucket。
-- [ ] `GET /api/v1/jobs/:jobId` 可查到 succeeded/failed。
+- [x] Worker 可通过 `TDMQ/CMQ` 消费任务并写回 output bucket。
+- [x] `GET /api/v1/jobs/:jobId` 可查到 succeeded/failed。
 - [ ] `GET /api/v1/jobs/:jobId/result-url` 返回短期下载 URL。
 - [ ] 客户回调带 HMAC 签名且可被客户系统验签。
 

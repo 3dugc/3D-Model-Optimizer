@@ -71,8 +71,13 @@ export interface CloudRuntimeConfig {
   defaultTaskType: string;
   jobMaxAttempts: number;
   jobTimeoutSeconds: number;
+  jobLeaseSeconds: number;
+  expiredJobRecoveryIntervalSeconds: number;
   workerConcurrency: number;
   workerHeartbeatIntervalMs: number;
+  workerIdleExitSeconds: number;
+  workerSpotTerminationCheckUrl?: string;
+  workerSpotTerminationPollMs: number;
   callbackTimeoutSeconds: number;
   callbackMaxAttempts: number;
 }
@@ -180,8 +185,17 @@ export const config: ServerConfig = {
     defaultTaskType: process.env.DEFAULT_TASK_TYPE || 'model.optimize',
     jobMaxAttempts: parsePositiveNumber(process.env.JOB_MAX_ATTEMPTS, 3),
     jobTimeoutSeconds: parsePositiveNumber(process.env.JOB_TIMEOUT_SECONDS, 30 * 60),
+    jobLeaseSeconds: parsePositiveNumber(process.env.JOB_LEASE_SECONDS, 5 * 60),
+    expiredJobRecoveryIntervalSeconds: parsePositiveNumber(process.env.EXPIRED_JOB_RECOVERY_INTERVAL_SECONDS, 30),
     workerConcurrency: parsePositiveNumber(process.env.WORKER_CONCURRENCY, 1),
     workerHeartbeatIntervalMs: parsePositiveNumber(process.env.WORKER_HEARTBEAT_INTERVAL_MS, 10 * 1000),
+    workerIdleExitSeconds: Math.max(0, parseNumber(process.env.WORKER_IDLE_EXIT_SECONDS, 0)),
+    workerSpotTerminationCheckUrl:
+      process.env.WORKER_SPOT_TERMINATION_CHECK_URL ||
+      (process.env.CLOUD_PROVIDER === 'tencent'
+        ? 'http://metadata.tencentyun.com/latest/meta-data/spot/termination-time'
+        : undefined),
+    workerSpotTerminationPollMs: parsePositiveNumber(process.env.WORKER_SPOT_TERMINATION_POLL_MS, 5 * 1000),
     callbackTimeoutSeconds: parsePositiveNumber(process.env.CALLBACK_TIMEOUT_SECONDS, 10),
     callbackMaxAttempts: parsePositiveNumber(process.env.CALLBACK_MAX_ATTEMPTS, 6),
   },

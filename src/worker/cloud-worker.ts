@@ -55,7 +55,11 @@ export class CloudWorker {
   private running = false;
   private draining = false;
   private busySlots = 0;
+  private lastActivityAt = Date.now();
   private heartbeatTimer?: NodeJS.Timeout;
+  private recoveryTimer?: NodeJS.Timeout;
+  private spotInterruptionTimer?: NodeJS.Timeout;
+  private readonly leaseRenewalTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly runtime: WorkerRuntimeConfig,
@@ -70,6 +74,8 @@ export class CloudWorker {
     this.running = true;
     this.installSignalHandlers();
     this.startHeartbeat();
+    this.startExpiredLeaseRecovery();
+    this.startSpotInterruptionMonitor();
     logger.info({ workerId: this.runtime.workerId, concurrency: this.runtime.concurrency }, 'Cloud worker started');
 
     const loops = Array.from({ length: this.runtime.concurrency }, (_unused, slotIndex) => this.runSlot(slotIndex));
@@ -80,21 +86,41 @@ export class CloudWorker {
     this.draining = true;
     this.running = false;
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    if (this.spotInterruptionTimer) clearInterval(this.spotInterruptionTimer);
+    for (const timer of this.leaseRenewalTimers.values()) clearInterval(timer);
+    this.leaseRenewalTimers.clear();
   }
 
   private async runSlot(slotIndex: number): Promise<void> {
     while (this.running) {
       if (this.draining) {
+        if (this.busySlots === 0) {
+          this.stop();
+          break;
+        }
         await sleep(1000);
         continue;
       }
 
-      const job = await this.queue.claimNext({ workerId: this.runtime.workerId });
+      const job = await this.queue.claimNext({
+        workerId: this.runtime.workerId,
+        leaseDurationMs: this.runtime.jobLeaseMs,
+      });
       if (!job) {
-        await sleep(2000);
+        if (this.shouldExitAfterIdle()) {
+          logger.info(
+            { workerId: this.runtime.workerId, idleExitMs: this.runtime.idleExitMs },
+            'Worker idle timeout reached, stopping'
+          );
+          this.stop();
+          break;
+        }
+        await sleep(this.nextIdlePollMs());
         continue;
       }
 
+      this.lastActivityAt = Date.now();
       this.busySlots++;
       try {
         logger.info({ workerId: this.runtime.workerId, slotIndex, jobId: job.id, taskType: job.taskType }, 'Claimed cloud job');
@@ -103,8 +129,23 @@ export class CloudWorker {
         logger.error({ error, jobId: job.id }, 'Cloud job processing failed');
       } finally {
         this.busySlots--;
+        this.lastActivityAt = Date.now();
+        if (this.draining && this.busySlots === 0) {
+          this.stop();
+        }
       }
     }
+  }
+
+  private shouldExitAfterIdle(): boolean {
+    if (!this.runtime.idleExitMs || this.busySlots > 0) return false;
+    return Date.now() - this.lastActivityAt >= this.runtime.idleExitMs;
+  }
+
+  private nextIdlePollMs(): number {
+    if (!this.runtime.idleExitMs) return 2000;
+    const remaining = this.runtime.idleExitMs - (Date.now() - this.lastActivityAt);
+    return Math.max(100, Math.min(2000, remaining));
   }
 
   private async processJob(job: CloudJob): Promise<void> {
@@ -114,6 +155,7 @@ export class CloudWorker {
     const reportPath = path.join(scratchDir, 'output', 'report.json');
 
     try {
+      this.startJobLeaseRenewal(job.id);
       await fs.promises.mkdir(path.dirname(inputPath), { recursive: true });
       await this.storage.downloadObject(objectFromJobInput(job), inputPath);
       const report = await this.registry.run(inputPath, outputPath, job.task);
@@ -128,6 +170,8 @@ export class CloudWorker {
 
       const completed = await this.store.transition(job.id, 'succeeded', {
         completedAt: new Date().toISOString(),
+        leaseExpiresAt: undefined,
+        lastHeartbeatAt: undefined,
         errorCode: undefined,
         errorMessage: undefined,
       });
@@ -141,6 +185,9 @@ export class CloudWorker {
       const updated = await this.store.transition(job.id, status, {
         errorCode: 'WORKER_FAILED',
         errorMessage: message,
+        workerId: shouldRetry ? undefined : job.workerId,
+        leaseExpiresAt: undefined,
+        lastHeartbeatAt: undefined,
         queuedAt: shouldRetry ? new Date(Date.now() + delaySeconds * 1000).toISOString() : job.queuedAt,
         completedAt: shouldRetry ? undefined : new Date().toISOString(),
       });
@@ -149,6 +196,7 @@ export class CloudWorker {
         await this.maybeSendCallback(updated);
       }
     } finally {
+      this.stopJobLeaseRenewal(job.id);
       await fs.promises.rm(scratchDir, { recursive: true, force: true });
     }
   }
@@ -182,6 +230,63 @@ export class CloudWorker {
     }, this.runtime.heartbeatIntervalMs);
   }
 
+  private startExpiredLeaseRecovery(): void {
+    if (!this.runtime.expiredJobRecoveryIntervalMs) return;
+    this.recoverExpiredLeases().catch((error: unknown) => logger.warn({ error }, 'Expired job lease recovery failed'));
+    this.recoveryTimer = setInterval(() => {
+      this.recoverExpiredLeases().catch((error: unknown) => logger.warn({ error }, 'Expired job lease recovery failed'));
+    }, this.runtime.expiredJobRecoveryIntervalMs);
+  }
+
+  private async recoverExpiredLeases(): Promise<void> {
+    const recovered = await this.store.recoverExpiredLeases({
+      limit: Math.max(10, this.runtime.concurrency * 4),
+      reason: 'Worker lease expired before the job completed; requeueing for another attempt.',
+    });
+    for (const job of recovered) {
+      if (job.status === 'retry_wait') {
+        await this.queue.publish({
+          jobId: job.id,
+          tenantId: job.tenantId,
+          taskType: job.taskType,
+          attempt: job.attempts,
+          traceId: job.externalJobId,
+        });
+        logger.warn({ jobId: job.id, attempts: job.attempts }, 'Recovered expired processing job lease');
+      } else if (job.status === 'failed') {
+        await this.maybeSendCallback(job);
+        logger.error({ jobId: job.id, attempts: job.attempts }, 'Expired processing job lease exceeded max attempts');
+      }
+    }
+  }
+
+  private startJobLeaseRenewal(jobId: string): void {
+    this.stopJobLeaseRenewal(jobId);
+    const intervalMs = Math.max(5000, Math.min(this.runtime.heartbeatIntervalMs, Math.floor(this.runtime.jobLeaseMs / 3)));
+    const renew = async () => {
+      const renewed = await this.store.renewLease(jobId, {
+        workerId: this.runtime.workerId,
+        leaseDurationMs: this.runtime.jobLeaseMs,
+      });
+      if (!renewed) {
+        logger.warn({ jobId, workerId: this.runtime.workerId }, 'Job lease renewal skipped because worker no longer owns job');
+      }
+    };
+    this.leaseRenewalTimers.set(
+      jobId,
+      setInterval(() => {
+        renew().catch((error: unknown) => logger.warn({ error, jobId }, 'Job lease renewal failed'));
+      }, intervalMs)
+    );
+  }
+
+  private stopJobLeaseRenewal(jobId: string): void {
+    const timer = this.leaseRenewalTimers.get(jobId);
+    if (!timer) return;
+    clearInterval(timer);
+    this.leaseRenewalTimers.delete(jobId);
+  }
+
   private async writeHeartbeat(): Promise<void> {
     const heartbeat: WorkerHeartbeat = {
       workerId: this.runtime.workerId,
@@ -198,12 +303,46 @@ export class CloudWorker {
   private installSignalHandlers(): void {
     process.once('SIGTERM', () => {
       logger.info({ workerId: this.runtime.workerId }, 'Worker received SIGTERM, entering drain mode');
-      this.stop();
+      this.requestDrain('sigterm');
     });
     process.once('SIGINT', () => {
       logger.info({ workerId: this.runtime.workerId }, 'Worker received SIGINT, entering drain mode');
-      this.stop();
+      this.requestDrain('sigint');
     });
+  }
+
+  private requestDrain(reason: string): void {
+    if (this.draining) return;
+    this.draining = true;
+    logger.warn({ workerId: this.runtime.workerId, reason, busySlots: this.busySlots }, 'Worker entering drain mode');
+    if (this.busySlots === 0) {
+      this.stop();
+    }
+  }
+
+  private startSpotInterruptionMonitor(): void {
+    if (!this.runtime.spotTerminationCheckUrl || !this.runtime.spotTerminationPollMs) return;
+    this.spotInterruptionTimer = setInterval(() => {
+      this.checkSpotInterruption().catch((error: unknown) =>
+        logger.debug({ error }, 'Spot interruption check failed')
+      );
+    }, this.runtime.spotTerminationPollMs);
+  }
+
+  private async checkSpotInterruption(): Promise<void> {
+    if (!this.runtime.spotTerminationCheckUrl) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    try {
+      const response = await fetch(this.runtime.spotTerminationCheckUrl, { signal: controller.signal });
+      if (response.status === 404) return;
+      if (!response.ok) return;
+      const terminationTime = (await response.text()).trim();
+      if (!terminationTime) return;
+      this.requestDrain(`spot-termination:${terminationTime}`);
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }
 
@@ -215,5 +354,10 @@ export function createWorkerRuntimeConfig(): WorkerRuntimeConfig {
     concurrency: config.cloud.workerConcurrency,
     heartbeatIntervalMs: config.cloud.workerHeartbeatIntervalMs,
     jobTimeoutMs: config.cloud.jobTimeoutSeconds * 1000,
+    jobLeaseMs: config.cloud.jobLeaseSeconds * 1000,
+    expiredJobRecoveryIntervalMs: config.cloud.expiredJobRecoveryIntervalSeconds * 1000,
+    idleExitMs: config.cloud.workerIdleExitSeconds > 0 ? config.cloud.workerIdleExitSeconds * 1000 : undefined,
+    spotTerminationCheckUrl: config.cloud.workerSpotTerminationCheckUrl,
+    spotTerminationPollMs: config.cloud.workerSpotTerminationPollMs,
   };
 }

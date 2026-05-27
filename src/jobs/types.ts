@@ -37,6 +37,8 @@ export interface CloudJob {
   paymentRequired: boolean;
   orderId?: string;
   workerId?: string;
+  leaseExpiresAt?: string;
+  lastHeartbeatAt?: string;
   attempts: number;
   maxAttempts: number;
   errorCode?: string;
@@ -67,4 +69,17 @@ export interface CreateCloudJobInput {
 export interface ClaimJobInput {
   workerId: string;
   now?: Date;
+  leaseDurationMs?: number;
+}
+
+export interface RenewJobLeaseInput {
+  workerId: string;
+  now?: Date;
+  leaseDurationMs?: number;
+}
+
+export interface RecoverExpiredJobLeasesInput {
+  now?: Date;
+  limit?: number;
+  reason?: string;
 }

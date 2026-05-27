@@ -117,19 +117,50 @@
   - [x] 13.4 新增腾讯云资源创建清单
   - [x] 13.5 新增生产演练 checklist
   - [x] 13.6 配置 GitHub Actions 推送腾讯云镜像仓库，并让 Portainer 入口栈拉取腾讯云镜像
+  - [x] 13.7 新增可复用重后端任务平台部署 runbook
   - _Requirements: 10.1-10.5_
 
 - [ ] 14. 集成验证
   - [ ] 14.1 本地 fake queue + local storage 端到端测试
   - [ ] 14.2 COS 上传到队列集成测试
   - [ ] 14.3 Worker 并发 slot 压测
-  - [ ] 14.4 Spot 回收模拟测试
+  - [x] 14.4a 实现 job 租约、续租和过期恢复，避免 Worker 被回收后任务永久卡在 `processing`
+  - [x] 14.4b 实现 CMQ watchdog 消息，处理队列消息提前重新可见和 Worker 消失后的重投递
+  - [x] 14.4c 实现 Worker 轮询腾讯云 Spot 回收 Metadata 并进入 draining
+  - [ ] 14.4 Spot 回收或强杀 Worker 后任务重新投递的真实云上模拟测试
   - [ ] 14.5 微信支付沙箱或测试商户回调测试
   - [ ] 14.6 客户回调失败重试测试
   - _Requirements: 1.1-10.5_
+
+- [ ] 15. 腾讯云真实部署落地
+  - [x] 15.1 部署入口 Stack `model-optimizer` 到 `https://optimizer.7dgame.com`
+  - [x] 15.2 创建并配置专用 COS bucket `model-optimizer-1251022382`
+  - [x] 15.3 创建 CMQ 主队列 `optimizer-jobs` 和死信队列 `optimizer-jobs-dlq`
+  - [x] 15.4 接入 TDSQL-C MySQL 集群 `cynosdbmysql-o6c4ezij`
+  - [x] 15.5 创建通用数据库 `async_task_platform` 和运行时账号 `async_task_runtime@%`
+  - [x] 15.6 新建 Worker 基准机 `model-optimizer-worker-base` / `ins-big9dirk`
+  - [x] 15.7 在 Worker 基准机安装 Docker、配置镜像仓库登录和 systemd Worker 服务
+  - [x] 15.8 停止入口机本地 Worker，并用基准机跑通真实队列 smoke test
+  - [x] 15.9 将 Worker 启动脚本改成按腾讯云 metadata 生成唯一 `WORKER_ID`
+  - [x] 15.10 发起从 Worker 基准机创建自定义镜像 `model-optimizer-worker-base-20260527` / `img-rxjo5rca`
+  - [x] 15.10a 等待自定义镜像 `img-rxjo5rca` 状态变为正常
+  - [x] 15.11 保存 CVM 竞价启动模板 `lt-model-optimizer-worker-spot`
+  - [x] 15.11a 创建 AS 启动配置 `asc-model-optimizer-worker-spot` / `asc-lwvidj3l`
+  - [x] 15.11b 创建 AS 伸缩组 `asg-model-optimizer-worker-spot` / `asg-pj6qaput`，容量 `0/0`，范围 `0/3`
+  - [x] 15.11c 停止 Worker 基准机 `ins-big9dirk`，用 AS 伸缩组扩容出弹性实例跑通真实 smoke test
+  - [x] 15.11d 修复 Worker 镜像启动脚本问题：metadata 变量转义和无公网实例 `--pull always` 超时
+  - [x] 15.11e 从热修弹性实例创建修复后镜像 `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2`
+  - [x] 15.11f 创建并切换 AS 启动配置 `asc-model-optimizer-worker-spot-fix1` / `asc-rkmzzkyj`
+  - [x] 15.11g 验证新镜像冷启动实例 `ins-fss90ts4` 自动启动 Worker，并将伸缩组缩回 `0/0`
+  - [ ] 15.12 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
+  - [ ] 15.13 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
+  - [ ] 15.14 将 CAM 子账号临时 TAT 权限收窄或移除
+  - [ ] 15.15 最终确认后释放 Worker 基准机 `ins-big9dirk`
+  - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 
 ## Notes
 
 - 勾选项代表可直接执行的工程任务。
 - 真实腾讯云和微信支付接入需要部署环境提供凭证，默认本地开发应使用 fake/local provider。
 - 每个阶段都应保持现有同步 API 可用，直到新异步 API 完成灰度。
+- 云上部署过程必须同步更新 `docs/heavy-task-platform-runbook.md`，且不得把密钥写入仓库。

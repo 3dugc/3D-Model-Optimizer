@@ -83,7 +83,21 @@ QUEUE_NAME=optimizer-jobs
 DLQ_NAME=optimizer-jobs-dlq
 QUEUE_PUBLIC_ENDPOINT=https://cmq-nj.public.tencenttdmq.com
 QUEUE_PRIVATE_ENDPOINT=http://nj.mqadapter.cmq.tencentyun.com
+DATABASE_CLUSTER=cynosdbmysql-o6c4ezij
+DATABASE_SCHEMA=async_task_platform
+DATABASE_PRIVATE_ENDPOINT=10.206.0.5:3306
+ENTRY_URL=https://optimizer.7dgame.com
+WORKER_BASE_INSTANCE=ins-big9dirk
+WORKER_IMAGE=img-hmvlx5n2
+WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix1
+WORKER_CVM_LAUNCH_TEMPLATE=lt-model-optimizer-worker-spot
+WORKER_AS_LAUNCH_CONFIGURATION=asc-rkmzzkyj
+WORKER_AS_LAUNCH_CONFIGURATION_NAME=asc-model-optimizer-worker-spot-fix1
+WORKER_AS_GROUP=asg-pj6qaput
+WORKER_AS_CAPACITY=0/0 current/desired, 0/3 min/max
 ```
+
+Sensitive values such as database passwords, CAM secrets, API keys and registry passwords are intentionally omitted from specs and docs.
 
 ## Slot Sizing Guidance
 
@@ -105,3 +119,4 @@ QUEUE_PRIVATE_ENDPOINT=http://nj.mqadapter.cmq.tencentyun.com
 - Queue messages are idempotent under duplicate delivery.
 - Wechat payment notification handler rejects invalid signatures.
 - Callback delivery is signed and retryable.
+- Tencent Cloud deployment changes are recorded in `docs/heavy-task-platform-runbook.md`.
