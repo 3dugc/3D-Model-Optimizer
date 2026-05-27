@@ -262,6 +262,30 @@ reportKey=tenants/elastic-worker-smoke/jobs/0c7928e0-e155-46ba-a7c7-96405e9ce893
 - AS 自动创建实例 `ins-3fv5utu4`，Worker 成功消费任务并写回 COS。
 - 任务完成后，Dispatcher 将 `asg-pj6qaput` 自动缩回 `desired=0`，最终四个 Worker 池均为 `desired=0`、`inService=0`。
 
+已完成 Dispatcher CAM 最小权限收窄验证：
+
+```text
+minimalPolicy=model-optimizer-dispatcher-as-minimal / 274388762
+asFullAccessRemoved=QcloudASFullAccess
+preRemovalJobId=c06b115f-76a1-4afa-9189-5e2a2d00c2bb
+preRemovalWorkerId=worker-cvm-ins-9otcem7i
+postRemovalJobId=5dd794c5-83eb-4870-8182-c365b5855cdb
+postRemovalWorkerId=worker-cvm-ins-m6q6mezk
+status=succeeded
+attempts=1
+outputKey=tenants/elastic-worker-smoke/jobs/5dd794c5-83eb-4870-8182-c365b5855cdb/output/model.glb
+reportKey=tenants/elastic-worker-smoke/jobs/5dd794c5-83eb-4870-8182-c365b5855cdb/output/report.json
+```
+
+验证过程：
+
+- CAM 自定义策略 `model-optimizer-dispatcher-as-minimal` 已绑定到运行时子账号 `modeloptimizer`。
+- 保留 `QcloudASFullAccess` 时先跑一次 smoke test，确认新增策略不破坏现有链路。
+- 从 `modeloptimizer` 移除 `QcloudASFullAccess`，保留 `model-optimizer-dispatcher-as-minimal`、`model-optimizer-runtime-policy` 和临时 TAT 策略。
+- 移除后再次提交真实任务，Dispatcher 仍能用最小权限将 `asg-pj6qaput` 从 `0` 自动扩到 `1`。
+- Worker `worker-cvm-ins-m6q6mezk` 成功处理任务；任务完成后 Dispatcher 自动缩回 `desired=0`、`inService=0`。
+- 由于最小权限只授权 `asg-pj6qaput`，后续使用该子账号查询 AS 时只能看到该伸缩组，这是预期现象。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：
@@ -418,11 +442,11 @@ qcs::as:ap-nanjing:uin/59643:auto-scaling-group/asg-pj6qaput
 
 权限收窄顺序：
 
-1. 在 CAM 创建自定义策略 `model-optimizer-dispatcher-as-minimal`，策略内容使用 `infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`。
-2. 先把该自定义策略绑定到运行时子账号 `modeloptimizer`，暂时保留 `QcloudASFullAccess`。
-3. 跑一次 Dispatcher smoke test，确认任务仍能把 `asg-pj6qaput` 从 `0` 自动扩到 `1`，完成后缩回 `0`。
-4. 测试通过后，再从运行时子账号移除 `QcloudASFullAccess`。
-5. 再跑一次 smoke test，确认最小权限策略独立可用。
+1. [x] 在 CAM 创建自定义策略 `model-optimizer-dispatcher-as-minimal`，策略内容使用 `infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`。
+2. [x] 先把该自定义策略绑定到运行时子账号 `modeloptimizer`，暂时保留 `QcloudASFullAccess`。
+3. [x] 跑一次 Dispatcher smoke test，确认任务仍能把 `asg-pj6qaput` 从 `0` 自动扩到 `1`，完成后缩回 `0`。
+4. [x] 测试通过后，从运行时子账号移除 `QcloudASFullAccess`。
+5. [x] 再跑一次 smoke test，确认最小权限策略独立可用。
 
 后续如果要让 Dispatcher 同时管理蜂驰池，需要先把对应伸缩组资源加入策略，再更新 Portainer 里的 `DISPATCHER_AS_GROUP_IDS`：
 
