@@ -241,6 +241,27 @@ reportKey=tenants/elastic-worker-smoke/jobs/682a51b8-67c9-429d-9815-7dbb6d09b4e2
 - Worker 消费真实 CMQ 任务，从 COS 读取输入，处理后写回 COS，并更新 TDSQL-C MySQL 状态。
 - 测试完成后伸缩组已缩回 `0`，四个 Worker 池均为 `desired=0`、`inService=0`。
 
+已完成一次 Dispatcher 自动扩缩容 smoke test：
+
+```text
+deployedService=optimizer-dispatcher
+asGroup=asg-pj6qaput
+jobId=0c7928e0-e155-46ba-a7c7-96405e9ce893
+workerId=worker-cvm-ins-3fv5utu4
+status=succeeded
+attempts=1
+outputKey=tenants/elastic-worker-smoke/jobs/0c7928e0-e155-46ba-a7c7-96405e9ce893/output/model.glb
+reportKey=tenants/elastic-worker-smoke/jobs/0c7928e0-e155-46ba-a7c7-96405e9ce893/output/report.json
+```
+
+验证过程：
+
+- Portainer Stack `model-optimizer` 已新增 `optimizer-dispatcher`，命令为 `node dist/dispatcher/run-dispatcher.js`。
+- Dispatcher 初始观测队列为空，保持 SA9 兜底伸缩组 `asg-pj6qaput` 为 `desired=0`。
+- 提交真实 CMQ/COS 任务后，Dispatcher 将 `asg-pj6qaput` 从 `0` 自动扩到 `1`。
+- AS 自动创建实例 `ins-3fv5utu4`，Worker 成功消费任务并写回 COS。
+- 任务完成后，Dispatcher 将 `asg-pj6qaput` 自动缩回 `desired=0`，最终四个 Worker 池均为 `desired=0`、`inService=0`。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：

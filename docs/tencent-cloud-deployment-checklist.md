@@ -164,7 +164,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] Worker 已支持 job 租约、续租、过期恢复和 CMQ watchdog 消息。
 - [x] Worker 已支持轮询腾讯云 Spot 回收 Metadata，收到回收通知后进入 draining。
 - [x] 已实现独立 `optimizer-dispatcher` 进程，可按 Job backlog 调整腾讯云 AS desired capacity。
-- [ ] 将 `optimizer-dispatcher` 部署到 Portainer，先配置 SA9 兜底组 `asg-pj6qaput`，验证自动扩容和自动缩容。
+- [x] 将 `optimizer-dispatcher` 部署到 Portainer，先配置 SA9 兜底组 `asg-pj6qaput`，验证自动扩容到 `1`、任务完成后自动缩容到 `0`：`jobId=0c7928e0-e155-46ba-a7c7-96405e9ce893`，`workerId=worker-cvm-ins-3fv5utu4`。
 - [ ] 在真实 Spot 回收或强杀 Worker 场景验证任务会重新投递并被新 Worker 接手。
 
 ## 7. API 验收

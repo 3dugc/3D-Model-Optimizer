@@ -170,7 +170,7 @@
   - [x] 15.16c 确认四个 Worker 伸缩组容量均为 `0/0`，并再次停止 Worker 基准机 `ins-big9dirk`
   - [x] 15.16d 用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test `682a51b8-67c9-429d-9815-7dbb6d09b4e2`，测试后缩回 `0/0`
   - [x] 15.16e 实现 `optimizer-dispatcher` 进程和 Portainer Compose 模板，可按 Job backlog 调整 AS desired capacity
-  - [ ] 15.16f 将 `optimizer-dispatcher` 部署到 Portainer，并用真实队列验证自动扩容到 `1`、任务完成后缩回 `0`
+  - [x] 15.16f 将 `optimizer-dispatcher` 部署到 Portainer，并用真实队列验证自动扩容到 `1`、任务完成后缩回 `0`：`jobId=0c7928e0-e155-46ba-a7c7-96405e9ce893`，`workerId=worker-cvm-ins-3fv5utu4`
   - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
   - [ ] 15.18 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
   - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除
