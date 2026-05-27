@@ -36,7 +36,8 @@
 - [x] 在 GitHub Secrets 配置 `TENCENT_REGISTRY_PASSWORD`。
 - [x] 确认 GitHub Actions 推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:<tag>` 成功。
 - [x] 确认 Portainer 能从腾讯云镜像仓库拉取入口镜像。
-- [x] 入口 Stack 已部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-5ec7375`，健康检查通过。
+- [x] 入口 Stack 已切为 API-only，并部署 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-121dbaf`，健康检查通过。
+- [ ] 将入口 Stack 热修到 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`，当前 Stack 内容已准备好，待 Portainer 更新确认。
 - [x] 入口域名 `https://optimizer.7dgame.com` 可访问。
 
 默认入口镜像：
@@ -127,7 +128,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 基准机配置 systemd 服务 `model-optimizer-worker.service`。
 - [x] 远程 Worker 真实 smoke test 成功：`jobId=9fbd477f-62e6-4044-9c2c-5f7cc6f97b79`，`workerId=worker-cvm-ins-big9dirk`。
 - [x] 已手动停止入口服务器上的 `optimizer-worker` 容器，避免入口机处理重任务。
-- [ ] 从 Portainer 入口 Stack 中永久移除 `optimizer-worker` 服务。
+- [x] 从 Portainer 入口 Stack 中永久移除 `optimizer-worker` 服务，入口只保留 `optimizer-api`。
 - [x] 基准机启动脚本改为按腾讯云 metadata 自动生成唯一 `WORKER_ID`。
 - [x] 已发起从基准机创建自定义镜像：`model-optimizer-worker-base-20260527` / `img-rxjo5rca`。
 - [x] 自定义镜像 `img-rxjo5rca` 状态已变为正常。
@@ -140,6 +141,14 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已创建修复后 Worker 镜像：`model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2`。
 - [x] 已创建并切换 AS 启动配置：`asc-model-optimizer-worker-spot-fix1` / `asc-rkmzzkyj`。
 - [x] 已验证新镜像冷启动实例 `ins-fss90ts4` 自动启动 `model-optimizer-worker.service`。
+- [x] 发现并修复 TDSQL-C MySQL 对 `LIMIT ?` 的兼容问题，提交 `d465f02`，CI 已推送 `sha-d465f02`。
+- [x] 基准机已拉取 `sha-d465f02`，并创建新版 Worker 镜像：`model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu`。
+- [x] 已创建 SA9 兜底启动配置：`asc-model-optimizer-worker-spot-fix2-sa9` / `asc-onk753cj`。
+- [x] 已用 SA9 兜底配置跑通新版弹性 Worker smoke test：`jobId=8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4`，`workerId=worker-cvm-ins-5q8pdmoy`。
+- [x] 已创建蜂驰 `BF1.LARGE8` Worker 池：`asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql`，启动配置 `asc-pf6hemad`。
+- [x] 已创建蜂驰 `BF1.MEDIUM4` Worker 池：`asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub`，启动配置 `asc-4clszyux`。
+- [x] 已创建蜂驰 `BF1.MEDIUM2` Worker 池：`asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an`，启动配置 `asc-idd0xj6b`。
+- [x] 记录当前 `BF1.LARGE8` 在南京一区竞价库存返回 `SpotSoldOut`，调度器需要规格 fallback。
 - [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
 - [ ] 从 `4C8G / WORKER_CONCURRENCY=1` 开始压测，再评估 `8C16G / WORKER_CONCURRENCY=2`。
 - [x] 配置最大实例数，避免成本失控。

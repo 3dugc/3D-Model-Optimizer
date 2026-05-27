@@ -88,13 +88,17 @@ DATABASE_SCHEMA=async_task_platform
 DATABASE_PRIVATE_ENDPOINT=10.206.0.5:3306
 ENTRY_URL=https://optimizer.7dgame.com
 WORKER_BASE_INSTANCE=ins-big9dirk
-WORKER_IMAGE=img-hmvlx5n2
-WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix1
+WORKER_IMAGE=img-d9cslozu
+WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix2
 WORKER_CVM_LAUNCH_TEMPLATE=lt-model-optimizer-worker-spot
-WORKER_AS_LAUNCH_CONFIGURATION=asc-rkmzzkyj
-WORKER_AS_LAUNCH_CONFIGURATION_NAME=asc-model-optimizer-worker-spot-fix1
+WORKER_DOCKER_IMAGE=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02
+WORKER_AS_LAUNCH_CONFIGURATION=asc-onk753cj
+WORKER_AS_LAUNCH_CONFIGURATION_NAME=asc-model-optimizer-worker-spot-fix2-sa9
 WORKER_AS_GROUP=asg-pj6qaput
 WORKER_AS_CAPACITY=0/0 current/desired, 0/3 min/max
+WORKER_BF1_LARGE8_AS_GROUP=asg-ov9ndzql
+WORKER_BF1_MEDIUM4_AS_GROUP=asg-o7ii5sub
+WORKER_BF1_MEDIUM2_AS_GROUP=asg-9f3nd5an
 ```
 
 Sensitive values such as database passwords, CAM secrets, API keys and registry passwords are intentionally omitted from specs and docs.

@@ -152,10 +152,19 @@
   - [x] 15.11e 从热修弹性实例创建修复后镜像 `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2`
   - [x] 15.11f 创建并切换 AS 启动配置 `asc-model-optimizer-worker-spot-fix1` / `asc-rkmzzkyj`
   - [x] 15.11g 验证新镜像冷启动实例 `ins-fss90ts4` 自动启动 Worker，并将伸缩组缩回 `0/0`
-  - [ ] 15.12 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
-  - [ ] 15.13 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
-  - [ ] 15.14 将 CAM 子账号临时 TAT 权限收窄或移除
-  - [ ] 15.15 最终确认后释放 Worker 基准机 `ins-big9dirk`
+  - [x] 15.11h 入口 Stack 切为 API-only，移除入口机本地 Worker
+  - [x] 15.11i 修复 TDSQL-C MySQL 租约恢复 `LIMIT ?` 兼容问题，提交 `d465f02`
+  - [x] 15.11j 创建新版 Worker 镜像 `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu`
+  - [x] 15.11k 创建并切换 SA9 兜底启动配置 `asc-model-optimizer-worker-spot-fix2-sa9` / `asc-onk753cj`
+  - [x] 15.11l 用 SA9 兜底 Worker `ins-5q8pdmoy` 跑通新版真实 smoke test `8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4`
+  - [x] 15.11m 创建蜂驰 `BF1.LARGE8`、`BF1.MEDIUM4`、`BF1.MEDIUM2` 三档 Worker 池，均保持 `0/0`
+  - [x] 15.11n 记录 `BF1.LARGE8` 当前 `SpotSoldOut`，调度器需要多规格 fallback
+  - [x] 15.11o 停止 Worker 基准机 `ins-big9dirk`
+  - [ ] 15.12 将入口 Stack 热修到 `sha-d465f02` 并确认健康检查
+  - [ ] 15.13 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
+  - [ ] 15.14 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
+  - [ ] 15.15 将 CAM 子账号临时 TAT 权限收窄或移除
+  - [ ] 15.16 最终确认后释放 Worker 基准机 `ins-big9dirk`
   - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 
 ## Notes

@@ -47,11 +47,15 @@ flowchart LR
 | Worker 基准机 | `model-optimizer-worker-base` / `ins-big9dirk` | 制作 Worker 镜像的基准 CVM | 已停机，待确认后释放 |
 | Worker 基准机内网 | `10.206.0.21` | Worker 访问 DB/CMQ/COS | 已确认 |
 | Worker 基准机公网 | `119.45.240.220` | 临时管理入口 | 已确认 |
-| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 弹性 Worker 克隆源 | 已验证，当前使用 |
-| 旧 Worker 镜像 | `model-optimizer-worker-base-20260527` / `img-rxjo5rca` | 首版弹性 Worker 克隆源 | 已被 `img-hmvlx5n2` 替代 |
+| Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 弹性 Worker 克隆源，缓存 `sha-d465f02` | 已验证，当前使用 |
+| 旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 上一版 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
+| 更旧 Worker 镜像 | `model-optimizer-worker-base-20260527` / `img-rxjo5rca` | 首版弹性 Worker 克隆源 | 已被 `img-hmvlx5n2` 替代 |
 | CVM 启动模板 | `lt-model-optimizer-worker-spot` | CVM 购买页保存的竞价模板 | 已保存 |
-| AS 启动配置 | `asc-model-optimizer-worker-spot-fix1` / `asc-rkmzzkyj` | 弹性伸缩创建 Worker 的配置 | 当前使用 |
-| AS 伸缩组 | `asg-model-optimizer-worker-spot` / `asg-pj6qaput` | Worker 弹性池 | 已创建，`0/0` 起步 |
+| AS 启动配置 | `asc-model-optimizer-worker-spot-fix2-sa9` / `asc-onk753cj` | SA9 兜底弹性 Worker 配置 | 当前主兜底配置 |
+| AS 伸缩组 | `asg-model-optimizer-worker-spot` / `asg-pj6qaput` | SA9 兜底 Worker 弹性池 | 已验证，`0/0` 起步 |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql` | `BF1.LARGE8` 低成本 Worker 池 | 已创建，当前库存售罄时保持 `0/0` |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub` | `BF1.MEDIUM4` 2C4G Worker 池 | 已创建，`0/0` 起步 |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an` | `BF1.MEDIUM2` 2C2G Worker 池 | 已创建，`0/0` 起步 |
 
 ## 入口服务部署约定
 
@@ -176,6 +180,28 @@ reportKey=tenants/elastic-worker-smoke/jobs/c7d3a25c-bd9a-4df0-aa90-b573c684b09d
 - 伸缩组切到新启动配置后，缩到 `0` 再扩到 `1`，新实例 `ins-fss90ts4` 自动启动 Worker 成功。
 - 验证后伸缩组已缩回 `0`，不继续产生 Worker 竞价实例费用。
 
+已完成一次新版租约恢复 Worker smoke test：
+
+```text
+jobId=8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4
+workerId=worker-cvm-ins-5q8pdmoy
+status=succeeded
+attempts=1
+outputKey=tenants/elastic-worker-smoke/jobs/8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4/output/model.glb
+reportKey=tenants/elastic-worker-smoke/jobs/8f68c9d7-95ed-4fee-9da4-c4e2e2fe5fa4/output/report.json
+```
+
+验证过程：
+
+- 发现 `sha-121dbaf` 在 TDSQL-C MySQL 上执行过期租约恢复时，`LIMIT ?` 预编译参数会触发 `ER_WRONG_ARGUMENTS`。
+- 修复为先校验内部 limit 数字，再在 MySQL SQL 中使用安全后的字面量；提交 `d465f02`。
+- GitHub CI 成功推送 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02`。
+- 基准机 `ins-big9dirk` 拉取 `sha-d465f02`，修复启动脚本并加入租约/Spot metadata 环境变量。
+- 从基准机创建新版镜像 `img-d9cslozu`，再创建 AS 启动配置 `asc-onk753cj`。
+- `BF1.LARGE8` 竞价库存返回 `SpotSoldOut`，所以本轮 smoke test 使用 SA9 兜底启动配置拉起 `ins-5q8pdmoy`。
+- 测试任务成功后伸缩组已缩回 `0`，基准机已停机。
+- 已额外创建 `BF1.LARGE8`、`BF1.MEDIUM4`、`BF1.MEDIUM2` 三档蜂驰 Worker 池，均为 `min=0`、`desired=0`。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：
@@ -268,6 +294,26 @@ MAX_SIZE=3
 CURRENT_CAPACITY=0
 CREATED_AT=2026-05-27 15:18:27 Asia/Shanghai
 UPDATED_AT=2026-05-27 16:02 Asia/Shanghai
+```
+
+当前新版 Worker 弹性池：
+
+```text
+WORKER_IMAGE_ID=img-d9cslozu
+WORKER_IMAGE_NAME=model-optimizer-worker-elastic-20260527-fix2
+DOCKER_IMAGE=hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:sha-d465f02
+SA9_FALLBACK_AS_GROUP_ID=asg-pj6qaput
+SA9_FALLBACK_LAUNCH_CONFIGURATION_ID=asc-onk753cj
+BF1_LARGE8_AS_GROUP_ID=asg-ov9ndzql
+BF1_LARGE8_LAUNCH_CONFIGURATION_ID=asc-pf6hemad
+BF1_MEDIUM4_AS_GROUP_ID=asg-o7ii5sub
+BF1_MEDIUM4_LAUNCH_CONFIGURATION_ID=asc-4clszyux
+BF1_MEDIUM2_AS_GROUP_ID=asg-9f3nd5an
+BF1_MEDIUM2_LAUNCH_CONFIGURATION_ID=asc-idd0xj6b
+MIN_SIZE=0
+DESIRED_CAPACITY=0
+MAX_SIZE=3
+UPDATED_AT=2026-05-27 17:05 Asia/Shanghai
 ```
 
 说明：
