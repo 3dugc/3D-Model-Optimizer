@@ -163,6 +163,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已切换蜂驰 `BF1.LARGE8` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-large8` / `asc-58tnbry1`。
 - [x] 已切换蜂驰 `BF1.MEDIUM4` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium4` / `asc-g810xf8d`。
 - [x] 已切换蜂驰 `BF1.MEDIUM2` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium2` / `asc-aigxhst7`。
+- [x] 已复制并切换到带运行时 CAM 角色的新版启动配置：SA9 `asc-3x9u29bv`，BF1.LARGE8 `asc-pmmp5l4p`，BF1.MEDIUM4 `asc-8er874b5`，BF1.MEDIUM2 `asc-ai38mm43`。
 - [x] 已用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test：`jobId=682a51b8-67c9-429d-9815-7dbb6d09b4e2`，`workerId=worker-cvm-ins-c72wkhws`。
 - [x] 记录当前 `BF1.LARGE8` 在南京一区竞价库存返回 `SpotSoldOut`，调度器需要规格 fallback。
 - [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
@@ -175,6 +176,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已实现独立 `optimizer-dispatcher` 进程，可按 Job backlog 调整腾讯云 AS desired capacity。
 - [x] 将 `optimizer-dispatcher` 部署到 Portainer，先配置 SA9 兜底组 `asg-pj6qaput`，验证自动扩容到 `1`、任务完成后自动缩容到 `0`：`jobId=0c7928e0-e155-46ba-a7c7-96405e9ce893`，`workerId=worker-cvm-ins-3fv5utu4`。
 - [x] 在真实 Spot 回收或强杀 Worker 场景验证任务会重新投递并被新 Worker 接手：`jobId=41e5772e-10e1-4e02-9fe9-5297f32f8bcc`，`worker-cvm-ins-i7cslhse` 被释放后由 `worker-cvm-ins-a8k745rc` 以 attempts=2 完成。
+- [x] 已从 Portainer Stack 移除腾讯永久密钥环境变量，并用实例角色跑通真实 smoke test：`jobId=a8b2db54-4286-4a95-879d-4d86721a5d25`，`workerId=worker-cvm-ins-jzr9cig4`，完成后 `asg-pj6qaput` 缩回 `0/0`。
 
 ## 7. API 验收
 

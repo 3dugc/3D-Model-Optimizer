@@ -52,11 +52,12 @@ flowchart LR
 | 更旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 更早 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
 | 更旧 Worker 镜像 | `model-optimizer-worker-base-20260527` / `img-rxjo5rca` | 首版弹性 Worker 克隆源 | 已被 `img-hmvlx5n2` 替代 |
 | CVM 启动模板 | `lt-model-optimizer-worker-spot` | CVM 购买页保存的竞价模板 | 已保存 |
-| AS 启动配置 | `asc-model-optimizer-worker-spot-latest1-sa9` / `asc-jhcn98fp` | SA9 兜底弹性 Worker 配置 | 当前主兜底配置 |
+| 运行时 CAM 角色 | `model-optimizer-runtime-role` / `4611686018446964541` | API、Dispatcher、Worker 实例角色 | 已绑定入口 CVM 和 Worker AS 启动配置 |
+| AS 启动配置 | `asc-model-optimizer-worker-spot-latest2-sa9-role` / `asc-3x9u29bv` | SA9 兜底弹性 Worker 配置 | 当前主兜底配置，已绑定运行时角色 |
 | AS 伸缩组 | `asg-model-optimizer-worker-spot` / `asg-pj6qaput` | SA9 兜底 Worker 弹性池 | 已验证，`0/0` 起步 |
-| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql` | `BF1.LARGE8` 低成本 Worker 池 | 已创建，当前库存售罄时保持 `0/0` |
-| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub` | `BF1.MEDIUM4` 2C4G Worker 池 | 已创建，`0/0` 起步 |
-| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an` | `BF1.MEDIUM2` 2C2G Worker 池 | 已创建，`0/0` 起步 |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql` / `asc-pmmp5l4p` | `BF1.LARGE8` 低成本 Worker 池 | 已切到带角色启动配置，`0/0` 起步 |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub` / `asc-8er874b5` | `BF1.MEDIUM4` 2C4G Worker 池 | 已切到带角色启动配置，`0/0` 起步 |
+| 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an` / `asc-ai38mm43` | `BF1.MEDIUM2` 2C2G Worker 池 | 已切到带角色启动配置，`0/0` 起步 |
 | CLS 日志集 | `model-optimizer` / `c4090ece-08de-4825-b658-9e3d21b58108` | 运行日志集中管理 | 已创建 |
 | CLS 日志主题 | `model-optimizer-runtime` / `18967734-2ca0-40ea-a1c2-73e5b0e97acc` | API、Dispatcher、Worker 运行日志 | 已创建，30 天标准存储 |
 | CLS 免费资源包 | `CLS预付费包` `10U` `3个月` | 新手体验资源包 | 已领取，订单实付 `0.00` |
@@ -216,6 +217,10 @@ sa9LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-sa9 / asc-jhcn98f
 bf1Large8LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-large8 / asc-58tnbry1
 bf1Medium4LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium4 / asc-g810xf8d
 bf1Medium2LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium2 / asc-aigxhst7
+sa9RoleLaunchConfiguration=asc-model-optimizer-worker-spot-latest2-sa9-role / asc-3x9u29bv
+bf1Large8RoleLaunchConfiguration=asc-model-optimizer-worker-bf1-large8-latest2-role / asc-pmmp5l4p
+bf1Medium4RoleLaunchConfiguration=asc-model-optimizer-worker-bf1-medium4-latest2-role / asc-8er874b5
+bf1Medium2RoleLaunchConfiguration=asc-model-optimizer-worker-bf1-medium2-latest2-role / asc-ai38mm43
 ```
 
 验证过程：
@@ -223,6 +228,7 @@ bf1Medium2LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium
 - 入口 Stack 已改为 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest`，`/health` 返回正常。
 - 基准机 `ins-big9dirk` 已拉取 `latest` 并用 `worker-cvm-ins-big9dirk` 启动 Worker 成功。
 - 从基准机创建自定义镜像 `img-om8cggg4`，并分别更新 SA9 兜底组和三档蜂驰 Worker 池启动配置。
+- 2026-05-28 已复制 4 个带 `CamRoleName=model-optimizer-runtime-role` 的新版启动配置，并将对应伸缩组切换过去；切换时四个 Worker 池均保持 `desired=0`。
 - 四个伸缩组当前均为 `min=0`、`desired=0`、`inService=0`、`max=3`。
 - 基准机 `ins-big9dirk` 已在 2026-05-28 释放；后续镜像维护需要重新拉起临时基准机，或直接从新实例完成验证后创建镜像。
 
@@ -323,6 +329,16 @@ clsStorage=standard
 clsRetentionDays=30
 clsFreePack=10U / 3 months / 0.00
 clsFreePackOrder=20260528643147262207721
+localTccli=3.1.99.1 / installed under user Python bin / not configured with saved credentials
+runtimeRole=model-optimizer-runtime-role / 4611686018446964541
+entryCvm=ins-11bytf4w / 7dgame.com（插件） / 10.206.16.3
+entryStackSecretsRemoved=TENCENT_SECRET_ID,TENCENT_SECRET_KEY,TENCENT_TOKEN
+runtimeRoleSmokeJob=a8b2db54-4286-4a95-879d-4d86721a5d25
+runtimeRoleSmokeWorker=worker-cvm-ins-jzr9cig4
+runtimeRoleSmokeStatus=succeeded
+runtimeRoleSmokeAttempts=1
+runtimeRoleSmokeOutput=tenants/runtime-role-smoke/jobs/a8b2db54-4286-4a95-879d-4d86721a5d25/output/model.glb
+runtimeRoleSmokeReport=tenants/runtime-role-smoke/jobs/a8b2db54-4286-4a95-879d-4d86721a5d25/output/report.json
 ```
 
 验证过程：
@@ -332,7 +348,12 @@ clsFreePackOrder=20260528643147262207721
 - 基准机 `ins-big9dirk` 已在 CVM 控制台执行销毁/释放，控制台显示操作成功，刷新实例列表后不再显示该实例。
 - CLS 已开通并创建日志集 `model-optimizer`、日志主题 `model-optimizer-runtime`，用于后续 API、Dispatcher、Worker 统一日志采集。
 - CLS 新手免费资源包已领取，费用中心订单显示 `日志服务CLS / CLS预付费包 / 交易成功 / 0.00`；领取时未勾选自动续费。
-- 监控盘点结果：TDSQL-C 策略 `policy-uh3ag0g2` 已有系统预设通知模板，覆盖内存使用率和容量类指标；CVM 基础监控策略 `policy-u79zubvx` 已覆盖磁盘只读和 `ping` 不可达，但通知模板仍未配置，需要在更宽控制台视口或人工操作中补上。
+- 监控盘点结果：TDSQL-C 策略 `policy-uh3ag0g2` 已有系统预设通知模板，覆盖内存使用率和容量类指标；CVM 基础监控策略 `policy-u79zubvx` 已绑定 `系统预设通知模板`。
+- 已创建运行时 CAM 角色 `model-optimizer-runtime-role`，并绑定 `model-optimizer-runtime-policy` 与 `model-optimizer-dispatcher-as-minimal`；入口 CVM `ins-11bytf4w` 已绑定该角色。
+- 已将 SA9 兜底组和三档蜂驰 Worker 池切换到带 `CamRoleName=model-optimizer-runtime-role` 的新版启动配置；切换后四个 Worker 池均为 `desired=0`。
+- Portainer Stack `model-optimizer` 已移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN` 环境变量，`https://optimizer.7dgame.com/health` 返回 `ok`。
+- 无永久腾讯密钥后提交真实任务 `a8b2db54-4286-4a95-879d-4d86721a5d25`，Dispatcher 将 `asg-pj6qaput` 从 `0` 扩到 `1`，Worker `worker-cvm-ins-jzr9cig4` 成功处理并写回 COS；完成后 `asg-pj6qaput` 自动缩回 `desired=0`、`inService=0`。
+- 为创建带角色的 AS 启动配置，曾临时把 `QcloudASFullAccess` 重新绑定到运行时子账号 `modeloptimizer`，初始化完成后已立即解除；当前用户权限列表只剩 `model-optimizer-dispatcher-as-minimal` 和 `model-optimizer-runtime-policy`。
 - 当前还没有为 `model-optimizer-1251022382` 创建专用 COS 告警，也没有业务级队列积压、Worker heartbeat 和 Job 失败率告警。
 
 已完成真实强杀 Worker 恢复验证：
@@ -552,13 +573,13 @@ TENCENT_TOKEN=                                 # 使用实例角色时由 metada
 
 迁移顺序：
 
-1. [ ] 创建或复用运行时 CAM 角色，绑定与 `modeloptimizer` 当前等价的 COS/CMQ runtime 权限和 Dispatcher AS 最小权限。
-2. [ ] 将入口 CVM 绑定运行时 CAM 角色。
-3. [ ] 更新 Worker AS 启动配置或实例模板，让新弹性 Worker 绑定同一个运行时 CAM 角色。
-4. [ ] 先保留永久密钥，部署支持实例角色的新镜像，跑一次 smoke test。
-5. [ ] 从 Portainer Stack 环境变量移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN`。
-6. [ ] 重新部署入口 Stack，确认 `/health` 正常。
-7. [ ] 提交真实任务，验证 API、CMQ、COS、Dispatcher AS 和 Worker 全链路都能使用实例角色临时凭证。
+1. [x] 创建或复用运行时 CAM 角色，绑定与 `modeloptimizer` 当前等价的 COS/CMQ runtime 权限和 Dispatcher AS 最小权限。
+2. [x] 将入口 CVM 绑定运行时 CAM 角色。
+3. [x] 更新 Worker AS 启动配置或实例模板，让新弹性 Worker 绑定同一个运行时 CAM 角色。
+4. [x] 先保留永久密钥，部署支持实例角色的新镜像，跑一次 smoke test。
+5. [x] 从 Portainer Stack 环境变量移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN`。
+6. [x] 重新部署入口 Stack，确认 `/health` 正常。
+7. [x] 提交真实任务，验证 API、CMQ、COS、Dispatcher AS 和 Worker 全链路都能使用实例角色临时凭证。
 8. [ ] 验证通过后，停用旧永久密钥；不要创建新的 `modeloptimizer` API key。
 
 ## 新服务接入模板

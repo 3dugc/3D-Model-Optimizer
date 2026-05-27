@@ -16,13 +16,14 @@
 - 弹性 Worker 使用腾讯云 AS 伸缩组，当前 Dispatcher 只控制 SA9 兜底组 `asg-pj6qaput`。
 - `optimizer-dispatcher` 已部署到 Portainer，会按数据库中的 Job backlog 自动调整 AS desired capacity。
 - 运行时 CAM 子账号 `modeloptimizer` 已移除临时 `QcloudASFullAccess` 和 `QcloudTATFullAccess`，只保留 AS 最小权限和 COS/CMQ runtime 策略。
+- 入口 CVM 和 Worker AS 启动配置已绑定运行时 CAM 角色 `model-optimizer-runtime-role`；Portainer Stack 不再向容器注入腾讯永久密钥。
 - 已完成多次真实 smoke test，验证链路为：提交任务、Dispatcher 自动扩容、Worker 处理、COS 写回、状态更新、Dispatcher 缩容。
 - 已完成真实强杀 Worker 恢复演练，验证 Worker 被释放后任务会在租约过期后重新投递，并由新 Worker 接手完成。
+- 已完成实例角色 smoke test，验证 API、Dispatcher、CMQ、COS、AS 和 Worker 全链路可在无永久腾讯密钥环境下运行。
 
 待落地：
 
-- 将永久 CAM Secret 迁移到更安全的角色、STS 或密钥管理方案。
-- 最终确认后释放 Worker 基准机 `ins-big9dirk`。
+- 最终确认后停用旧 `modeloptimizer` 永久 API key，不创建新的 key。
 - 接入微信 Native 支付和外部客户回调密钥管理。
 - 给外部系统开放 COS-only manifest 接入或正式 STS 直传接入。
 
@@ -66,9 +67,10 @@ flowchart LR
 | CMQ DLQ | `optimizer-jobs-dlq` | 死信队列 |
 | 数据库 | `cynosdbmysql-o6c4ezij` / `async_task_platform` | Job、Order、Worker、Callback 状态 |
 | Worker 镜像 | `model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4` | AS 创建 Worker CVM 的自定义镜像 |
-| SA9 AS 组 | `asg-pj6qaput` / `asc-jhcn98fp` | 当前 Dispatcher 生产控制组 |
-| BF1 组 | `asg-ov9ndzql`、`asg-o7ii5sub`、`asg-9f3nd5an` | 后续成本优化候选 Worker 池 |
+| SA9 AS 组 | `asg-pj6qaput` / `asc-3x9u29bv` | 当前 Dispatcher 生产控制组，启动配置已绑定运行时角色 |
+| BF1 组 | `asg-ov9ndzql` / `asc-pmmp5l4p`、`asg-o7ii5sub` / `asc-8er874b5`、`asg-9f3nd5an` / `asc-ai38mm43` | 后续成本优化候选 Worker 池，启动配置已绑定运行时角色 |
 | CAM 用户 | `modeloptimizer` | API、Dispatcher、Worker 运行时账号 |
+| CAM 角色 | `model-optimizer-runtime-role` | 入口 CVM 和弹性 Worker 实例角色 |
 | AS 最小权限策略 | `model-optimizer-dispatcher-as-minimal` | 只允许查询和修改 `asg-pj6qaput` desired capacity |
 | Runtime 权限策略 | `model-optimizer-runtime-policy` | COS/CMQ 运行时访问 |
 
