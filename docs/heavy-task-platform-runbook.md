@@ -223,6 +223,24 @@ bf1Medium2LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium
 - 四个伸缩组当前均为 `min=0`、`desired=0`、`inService=0`、`max=3`。
 - 基准机 `ins-big9dirk` 已再次停机，只保留作后续镜像维护用途。
 
+已完成一次 `latest1` 冷启动弹性 Worker smoke test：
+
+```text
+jobId=682a51b8-67c9-429d-9815-7dbb6d09b4e2
+workerId=worker-cvm-ins-c72wkhws
+status=succeeded
+attempts=1
+outputKey=tenants/elastic-worker-smoke/jobs/682a51b8-67c9-429d-9815-7dbb6d09b4e2/output/model.glb
+reportKey=tenants/elastic-worker-smoke/jobs/682a51b8-67c9-429d-9815-7dbb6d09b4e2/output/report.json
+```
+
+验证过程：
+
+- SA9 兜底伸缩组 `asg-pj6qaput` 从 `0` 临时扩到 `1`，自动创建 `ins-c72wkhws`。
+- 新实例使用 `img-om8cggg4` 和启动配置 `asc-jhcn98fp` 冷启动 Worker 成功。
+- Worker 消费真实 CMQ 任务，从 COS 读取输入，处理后写回 COS，并更新 TDSQL-C MySQL 状态。
+- 测试完成后伸缩组已缩回 `0`，四个 Worker 池均为 `desired=0`、`inService=0`。
+
 ## 创建 Worker 自定义镜像
 
 镜像创建前检查：
@@ -334,7 +352,7 @@ BF1_MEDIUM2_LAUNCH_CONFIGURATION_ID=asc-aigxhst7
 MIN_SIZE=0
 DESIRED_CAPACITY=0
 MAX_SIZE=3
-UPDATED_AT=2026-05-27 17:48 Asia/Shanghai
+UPDATED_AT=2026-05-27 18:06 Asia/Shanghai
 ```
 
 说明：

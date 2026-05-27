@@ -168,6 +168,7 @@
   - [x] 15.16a 从切到 `latest` 的基准机创建新版 Worker 镜像 `model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4`
   - [x] 15.16b 将 SA9 和三档蜂驰 AS 伸缩组切到 `latest1` 镜像启动配置：`asc-jhcn98fp`、`asc-58tnbry1`、`asc-g810xf8d`、`asc-aigxhst7`
   - [x] 15.16c 确认四个 Worker 伸缩组容量均为 `0/0`，并再次停止 Worker 基准机 `ins-big9dirk`
+  - [x] 15.16d 用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test `682a51b8-67c9-429d-9815-7dbb6d09b4e2`，测试后缩回 `0/0`
   - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
   - [ ] 15.18 将 CAM 子账号临时 `QcloudASFullAccess` 收窄为 Dispatcher 最小权限策略
   - [ ] 15.19 将 CAM 子账号临时 TAT 权限收窄或移除

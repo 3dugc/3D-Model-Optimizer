@@ -155,6 +155,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已切换蜂驰 `BF1.LARGE8` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-large8` / `asc-58tnbry1`。
 - [x] 已切换蜂驰 `BF1.MEDIUM4` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium4` / `asc-g810xf8d`。
 - [x] 已切换蜂驰 `BF1.MEDIUM2` Worker 池到启动配置：`asc-model-optimizer-worker-spot-latest1-bf1-medium2` / `asc-aigxhst7`。
+- [x] 已用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test：`jobId=682a51b8-67c9-429d-9815-7dbb6d09b4e2`，`workerId=worker-cvm-ins-c72wkhws`。
 - [x] 记录当前 `BF1.LARGE8` 在南京一区竞价库存返回 `SpotSoldOut`，调度器需要规格 fallback。
 - [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
 - [ ] 从 `4C8G / WORKER_CONCURRENCY=1` 开始压测，再评估 `8C16G / WORKER_CONCURRENCY=2`。
