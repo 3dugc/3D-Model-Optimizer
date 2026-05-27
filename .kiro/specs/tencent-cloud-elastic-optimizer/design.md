@@ -103,21 +103,21 @@ Queue semantics:
 
 ### Dispatcher
 
-Dispatcher observes queue depth and worker heartbeats.
+Dispatcher runs as a separate lightweight process. It observes the shared Job database, estimates required slots, and updates Tencent AS desired capacity. One Dispatcher instance can be scoped to one `taskType`; future heavy services can run their own Dispatcher against different AS groups.
 
 ```text
-required_slots = queued_jobs + retry_ready_jobs
-current_slots = sum(active_workers.slots_total)
-busy_slots = sum(active_workers.slots_busy)
-missing_slots = max(0, required_slots - (current_slots - busy_slots))
-needed_instances = ceil(missing_slots / slots_per_instance)
+required_slots = queued_jobs + retry_ready_jobs + active_processing_jobs + expired_processing_jobs
+needed_instances = ceil(required_slots / slots_per_instance)
+target_instances = clamp(needed_instances, min_instances, max_instances)
 ```
 
 Dispatcher backends:
 
-1. Batch submit job.
-2. Spot CVM scaling group.
+1. Tencent AS scaling group.
+2. Batch submit job.
 3. Local Docker worker for development.
+
+Current production rollout starts with the SA9 fallback AS group. BF1 pools are already created and can be enabled later by changing `DISPATCHER_AS_GROUP_IDS`.
 
 ### Docker Worker
 

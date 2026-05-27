@@ -80,6 +80,14 @@ export interface CloudRuntimeConfig {
   workerSpotTerminationPollMs: number;
   callbackTimeoutSeconds: number;
   callbackMaxAttempts: number;
+  dispatcherProvider: 'local' | 'tencent-as';
+  dispatcherIntervalSeconds: number;
+  dispatcherDryRun: boolean;
+  dispatcherTaskType?: string;
+  dispatcherAsGroupIds: string[];
+  dispatcherSlotsPerInstance: number;
+  dispatcherMinInstances: number;
+  dispatcherMaxInstances: number;
 }
 
 /**
@@ -125,6 +133,14 @@ function parseCorsOrigins(value: string | undefined): string | string[] {
 function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
   if (!value) return defaultValue;
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function parseCsv(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function parseStateStoreProvider(): 'local' | 'mysql' | 'postgres' {
@@ -198,6 +214,17 @@ export const config: ServerConfig = {
     workerSpotTerminationPollMs: parsePositiveNumber(process.env.WORKER_SPOT_TERMINATION_POLL_MS, 5 * 1000),
     callbackTimeoutSeconds: parsePositiveNumber(process.env.CALLBACK_TIMEOUT_SECONDS, 10),
     callbackMaxAttempts: parsePositiveNumber(process.env.CALLBACK_MAX_ATTEMPTS, 6),
+    dispatcherProvider:
+      process.env.DISPATCHER_PROVIDER === 'tencent-as' || process.env.CLOUD_PROVIDER === 'tencent'
+        ? 'tencent-as'
+        : 'local',
+    dispatcherIntervalSeconds: parsePositiveNumber(process.env.DISPATCHER_INTERVAL_SECONDS, 30),
+    dispatcherDryRun: parseBoolean(process.env.DISPATCHER_DRY_RUN, false),
+    dispatcherTaskType: process.env.DISPATCHER_TASK_TYPE || undefined,
+    dispatcherAsGroupIds: parseCsv(process.env.DISPATCHER_AS_GROUP_IDS || process.env.DISPATCHER_AS_GROUP_ID),
+    dispatcherSlotsPerInstance: parsePositiveNumber(process.env.DISPATCHER_SLOTS_PER_INSTANCE, 1),
+    dispatcherMinInstances: Math.max(0, parseNumber(process.env.DISPATCHER_MIN_INSTANCES, 0)),
+    dispatcherMaxInstances: Math.max(0, parseNumber(process.env.DISPATCHER_MAX_INSTANCES, 3)),
   },
 
   // Shared state store

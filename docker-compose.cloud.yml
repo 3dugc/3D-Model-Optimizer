@@ -59,5 +59,22 @@ services:
       optimizer-api:
         condition: service_started
 
+  optimizer-dispatcher:
+    build: .
+    command: node dist/dispatcher/run-dispatcher.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      DISPATCHER_PROVIDER: local
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
+      DISPATCHER_TASK_TYPE: model.optimize
+      DISPATCHER_SLOTS_PER_INSTANCE: 1
+      DISPATCHER_MAX_INSTANCES: 3
+    depends_on:
+      mysql:
+        condition: service_healthy
+
 volumes:
   mysql-data:

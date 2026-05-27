@@ -6,6 +6,8 @@ import { LocalJobStore, MySqlJobStore } from '../../src/jobs/job-store';
 import { LocalQueueProvider, TencentCmqQueueProvider } from '../../src/cloud/queue';
 import { TencentCmqClient, cmqInternals } from '../../src/cloud/tencent-cmq-client';
 import { signCallbackPayload } from '../../src/callbacks/callback-service';
+import { ElasticDispatcher, LocalScalingBackend } from '../../src/dispatcher/dispatcher';
+import { calculateDesiredInstances, planPoolDesiredCapacities, summarizeJobBacklog } from '../../src/dispatcher/scaling';
 import type { CloudJob } from '../../src/jobs/types';
 
 function makeJob(id: string): CloudJob {
@@ -260,5 +262,98 @@ describe('cloud runtime primitives', () => {
     expect(signCallbackPayload(payload, 'secret-a', timestamp)).not.toBe(
       signCallbackPayload(payload, 'secret-b', timestamp)
     );
+  });
+
+  it('summarizes dispatcher backlog with task type filtering', () => {
+    const now = new Date('2026-05-27T00:00:00.000Z');
+    const jobs: CloudJob[] = [
+      { ...makeJob('queued-model'), status: 'queued', taskType: 'model.optimize' },
+      {
+        ...makeJob('retry-ready-model'),
+        status: 'retry_wait',
+        taskType: 'model.optimize',
+        queuedAt: '2026-05-26T23:59:00.000Z',
+      },
+      {
+        ...makeJob('processing-model'),
+        status: 'processing',
+        taskType: 'model.optimize',
+        workerId: 'worker-a',
+        leaseExpiresAt: '2026-05-27T00:01:00.000Z',
+      },
+      {
+        ...makeJob('expired-model'),
+        status: 'processing',
+        taskType: 'model.optimize',
+        workerId: 'worker-b',
+        leaseExpiresAt: '2026-05-26T23:59:00.000Z',
+      },
+      { ...makeJob('queued-video'), status: 'queued', taskType: 'video.transcode' },
+    ];
+
+    expect(summarizeJobBacklog(jobs, now, 'model.optimize')).toEqual({
+      queued: 1,
+      retryReady: 1,
+      activeProcessing: 1,
+      expiredProcessing: 1,
+      requiredSlots: 4,
+    });
+  });
+
+  it('calculates desired instances and pool capacity plans', () => {
+    expect(
+      calculateDesiredInstances({
+        requiredSlots: 5,
+        slotsPerInstance: 2,
+        minInstances: 0,
+        maxInstances: 3,
+      })
+    ).toBe(3);
+    expect(
+      calculateDesiredInstances({
+        requiredSlots: 0,
+        slotsPerInstance: 2,
+        minInstances: 0,
+        maxInstances: 3,
+      })
+    ).toBe(0);
+
+    const plan = planPoolDesiredCapacities(
+      [
+        { id: 'pool-a', minSize: 0, maxSize: 2, desiredCapacity: 0, inService: 0 },
+        { id: 'pool-b', minSize: 0, maxSize: 3, desiredCapacity: 0, inService: 0 },
+      ],
+      4
+    );
+
+    expect(plan.get('pool-a')).toBe(2);
+    expect(plan.get('pool-b')).toBe(2);
+  });
+
+  it('updates scaling backend desired capacity from queued jobs', async () => {
+    const store = new LocalJobStore(await createTempFilePath('jobs.json'));
+    const scaler = new LocalScalingBackend();
+    await store.create({ ...makeJob('job-dispatch-1'), status: 'queued' });
+    await store.create({ ...makeJob('job-dispatch-2'), status: 'queued' });
+
+    const dispatcher = new ElasticDispatcher(
+      {
+        intervalMs: 1000,
+        dryRun: false,
+        taskType: 'model.optimize',
+        slotsPerInstance: 2,
+        minInstances: 0,
+        maxInstances: 3,
+      },
+      scaler,
+      store
+    );
+
+    const decision = await dispatcher.reconcileOnce(new Date('2026-05-27T00:00:00.000Z'));
+    const snapshot = await scaler.describe();
+
+    expect(decision.targetInstances).toBe(1);
+    expect(decision.changed).toBe(true);
+    expect(snapshot.desiredCapacity).toBe(1);
   });
 });

@@ -291,13 +291,12 @@ SUPERSEDES_IMAGE_ID=img-rxjo5rca
 | 缩容触发 | Worker 空闲 10-15 分钟 | 可用 `WORKER_IDLE_EXIT_SECONDS` 或伸缩组策略 |
 | 失败重试 | 3 次 | 超过进入 DLQ / failed |
 
-后续 Dispatcher 规则：
+当前 Dispatcher 规则：
 
 ```text
-required_slots = queued_jobs + retry_ready_jobs
-idle_slots = active_slots - busy_slots
-missing_slots = max(0, required_slots - idle_slots)
-needed_instances = ceil(missing_slots / slots_per_instance)
+required_slots = queued_jobs + retry_ready_jobs + active_processing_jobs + expired_processing_jobs
+needed_instances = ceil(required_slots / slots_per_instance)
+target_instances = clamp(needed_instances, min_instances, max_instances)
 ```
 
 调度约束：
@@ -306,6 +305,23 @@ needed_instances = ceil(missing_slots / slots_per_instance)
 - 每个租户最大并发必须配置。
 - 每个 `taskType` 可以配置不同实例规格、slot、价格和超时时间。
 - Spot 回收时不 ACK 消息，依赖 CMQ 可见性超时重投。
+- 当前实现提供 `optimizer-dispatcher` 独立进程，使用 `node dist/dispatcher/run-dispatcher.js` 启动。
+- 当前生产建议先配置 `DISPATCHER_AS_GROUP_IDS=asg-pj6qaput`，即 SA9 兜底组；蜂驰池等 Dispatcher 稳定后再加入。
+
+Dispatcher 生产环境变量示例：
+
+```text
+DISPATCHER_PROVIDER=tencent-as
+DISPATCHER_TASK_TYPE=model.optimize
+DISPATCHER_AS_GROUP_IDS=asg-pj6qaput
+DISPATCHER_INTERVAL_SECONDS=30
+DISPATCHER_SLOTS_PER_INSTANCE=1
+DISPATCHER_MIN_INSTANCES=0
+DISPATCHER_MAX_INSTANCES=3
+DISPATCHER_DRY_RUN=false
+```
+
+后续要优先用蜂驰降低成本时，可以把 `DISPATCHER_AS_GROUP_IDS` 改成逗号分隔的伸缩组列表。建议先灰度一组，观察 `SpotSoldOut` 和任务耗时后再把 BF1 放在 SA9 前面。
 
 ### 当前 Worker 弹性池
 

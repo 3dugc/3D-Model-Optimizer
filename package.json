@@ -7,6 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node --files src/index.ts",
+    "dispatcher": "ts-node --files src/dispatcher/run-dispatcher.ts",
+    "dispatcher:prod": "node dist/dispatcher/run-dispatcher.js",
     "worker": "ts-node --files src/worker/run-worker.ts",
     "worker:prod": "node dist/worker/run-worker.js",
     "test": "vitest run",

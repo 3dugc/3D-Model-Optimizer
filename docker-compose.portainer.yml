@@ -8,8 +8,12 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       API_KEY: ${OPTIMIZER_API_KEY:-}
-      CLOUD_PROVIDER: local
-      QUEUE_PROVIDER: local
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-tencent}
+      QUEUE_PROVIDER: ${QUEUE_PROVIDER:-tdmq-cmq}
+      STATE_STORE_PROVIDER: ${STATE_STORE_PROVIDER:-mysql}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
       CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
       JOB_STORE_PATH: /app/data/cloud/jobs.json
       ORDER_STORE_PATH: /app/data/cloud/orders.json
@@ -19,12 +23,14 @@ services:
       TENCENT_TOKEN: ${TENCENT_TOKEN:-}
       COS_INPUT_BUCKET: model-optimizer-1251022382
       COS_OUTPUT_BUCKET: model-optimizer-1251022382
-      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-}
+      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-https://cmq-nj.public.tencenttdmq.com}
       QUEUE_NAME: ${QUEUE_NAME:-optimizer-jobs}
       QUEUE_POLLING_WAIT_SECONDS: 10
       DEFAULT_TASK_TYPE: model.optimize
       JOB_MAX_ATTEMPTS: 3
       JOB_TIMEOUT_SECONDS: 1800
+      JOB_LEASE_SECONDS: 300
+      EXPIRED_JOB_RECOVERY_INTERVAL_SECONDS: 30
       BILLING_MODE: mock
       DEFAULT_JOB_PRICE_CENTS: 800
       CALLBACK_TIMEOUT_SECONDS: 10
@@ -47,6 +53,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    restart: unless-stopped
+
+  optimizer-dispatcher:
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    command: node dist/dispatcher/run-dispatcher.js
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      CLOUD_PROVIDER: tencent
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      TENCENT_REGION: ap-nanjing
+      TENCENT_SECRET_ID: ${TENCENT_SECRET_ID:-}
+      TENCENT_SECRET_KEY: ${TENCENT_SECRET_KEY:-}
+      TENCENT_TOKEN: ${TENCENT_TOKEN:-}
+      DISPATCHER_PROVIDER: tencent-as
+      DISPATCHER_AS_GROUP_IDS: ${DISPATCHER_AS_GROUP_IDS:-asg-pj6qaput}
+      DISPATCHER_TASK_TYPE: ${DISPATCHER_TASK_TYPE:-model.optimize}
+      DISPATCHER_INTERVAL_SECONDS: ${DISPATCHER_INTERVAL_SECONDS:-30}
+      DISPATCHER_SLOTS_PER_INSTANCE: ${DISPATCHER_SLOTS_PER_INSTANCE:-1}
+      DISPATCHER_MIN_INSTANCES: ${DISPATCHER_MIN_INSTANCES:-0}
+      DISPATCHER_MAX_INSTANCES: ${DISPATCHER_MAX_INSTANCES:-3}
+      DISPATCHER_DRY_RUN: ${DISPATCHER_DRY_RUN:-false}
     restart: unless-stopped
 
 volumes:
