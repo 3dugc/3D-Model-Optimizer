@@ -288,7 +288,7 @@ tenants/{tenantId}/jobs/{jobId}/output/report.json
 
 ## 后续路线
 
-优先级建议：
+后续可执行任务统一记录在 `docs/heavy-task-platform-next-tasks.md`。优先级建议：
 
 1. 将永久 CAM Secret 迁移到角色、STS 或密钥管理。
 2. 最终确认后释放 Worker 基准机 `ins-big9dirk`。
@@ -301,5 +301,6 @@ tenants/{tenantId}/jobs/{jobId}/output/report.json
 
 - `docs/tencent-cloud-architecture.md`：目标架构和设计细节。
 - `docs/heavy-task-platform-runbook.md`：云资源、部署记录和运维操作。
+- `docs/heavy-task-platform-next-tasks.md`：上线后剩余工作的可勾选任务清单。
 - `docs/tencent-cloud-deployment-checklist.md`：上线检查表。
 - `.kiro/specs/tencent-cloud-elastic-optimizer`：需求、设计、plan 和 task。
