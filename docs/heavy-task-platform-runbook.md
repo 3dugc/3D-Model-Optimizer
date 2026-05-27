@@ -44,9 +44,9 @@ flowchart LR
 | 数据库账号 | `async_task_runtime@%` | API/Worker 运行时账号 | 已创建 |
 | 镜像仓库 | `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer` | GitHub CI 推送镜像 | 已接入 |
 | 入口 Stack | `model-optimizer` | Portainer API Stack | 已部署 |
-| Worker 基准机 | `model-optimizer-worker-base` / `ins-big9dirk` | 制作 Worker 镜像的基准 CVM | 已停机，待确认后释放 |
-| Worker 基准机内网 | `10.206.0.21` | Worker 访问 DB/CMQ/COS | 已确认 |
-| Worker 基准机公网 | `119.45.240.220` | 临时管理入口 | 已确认 |
+| Worker 基准机 | `model-optimizer-worker-base` / `ins-big9dirk` | 制作 Worker 镜像的基准 CVM | 已释放，2026-05-28 |
+| Worker 基准机内网 | `10.206.0.21` | Worker 访问 DB/CMQ/COS | 历史记录，实例已释放 |
+| Worker 基准机公网 | `119.45.240.220` | 临时管理入口 | 历史记录，实例已释放 |
 | Worker 自定义镜像 | `model-optimizer-worker-elastic-20260527-latest1` / `img-om8cggg4` | 弹性 Worker 克隆源，缓存并运行 `latest` | 当前使用 |
 | 旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix2` / `img-d9cslozu` | 上一版 Worker 克隆源 | 已被 `img-om8cggg4` 替代 |
 | 更旧 Worker 镜像 | `model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2` | 更早 Worker 克隆源 | 已被 `img-d9cslozu` 替代 |
@@ -57,6 +57,9 @@ flowchart LR
 | 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-large8` / `asg-ov9ndzql` | `BF1.LARGE8` 低成本 Worker 池 | 已创建，当前库存售罄时保持 `0/0` |
 | 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium4` / `asg-o7ii5sub` | `BF1.MEDIUM4` 2C4G Worker 池 | 已创建，`0/0` 起步 |
 | 蜂驰 Worker 池 | `asg-model-optimizer-worker-bf1-medium2` / `asg-9f3nd5an` | `BF1.MEDIUM2` 2C2G Worker 池 | 已创建，`0/0` 起步 |
+| CLS 日志集 | `model-optimizer` / `c4090ece-08de-4825-b658-9e3d21b58108` | 运行日志集中管理 | 已创建 |
+| CLS 日志主题 | `model-optimizer-runtime` / `18967734-2ca0-40ea-a1c2-73e5b0e97acc` | API、Dispatcher、Worker 运行日志 | 已创建，30 天标准存储 |
+| CLS 免费资源包 | `CLS预付费包` `10U` `3个月` | 新手体验资源包 | 已领取，订单实付 `0.00` |
 
 ## 入口服务部署约定
 
@@ -221,7 +224,7 @@ bf1Medium2LaunchConfiguration=asc-model-optimizer-worker-spot-latest1-bf1-medium
 - 基准机 `ins-big9dirk` 已拉取 `latest` 并用 `worker-cvm-ins-big9dirk` 启动 Worker 成功。
 - 从基准机创建自定义镜像 `img-om8cggg4`，并分别更新 SA9 兜底组和三档蜂驰 Worker 池启动配置。
 - 四个伸缩组当前均为 `min=0`、`desired=0`、`inService=0`、`max=3`。
-- 基准机 `ins-big9dirk` 已再次停机，只保留作后续镜像维护用途。
+- 基准机 `ins-big9dirk` 已在 2026-05-28 释放；后续镜像维护需要重新拉起临时基准机，或直接从新实例完成验证后创建镜像。
 
 已完成一次 `latest1` 冷启动弹性 Worker smoke test：
 
@@ -301,6 +304,36 @@ healthStatus=ok
 - 运行时 Dispatcher 不需要 TAT 远程命令权限，TAT 应只保留给人工运维账号或按需临时授权。
 - 清理后 `modeloptimizer` 只保留 AS 最小权限策略和 COS/CMQ runtime 策略。
 - 入口 API 健康检查正常。
+
+已完成 2026-05-28 云端 P0 收口：
+
+```text
+runtimeCredentialCodeCommit=a46c2e
+githubActionsRun=26528473445
+releasedWorkerBaseInstance=ins-big9dirk
+releasedWorkerBaseName=model-optimizer-worker-base
+releasedWorkerBasePrivateIp=10.206.0.21
+releasedWorkerBasePublicIp=119.45.240.220
+retainedDisks=0
+retainedEip=0
+clsRegion=ap-nanjing
+clsLogset=model-optimizer / c4090ece-08de-4825-b658-9e3d21b58108
+clsTopic=model-optimizer-runtime / 18967734-2ca0-40ea-a1c2-73e5b0e97acc
+clsStorage=standard
+clsRetentionDays=30
+clsFreePack=10U / 3 months / 0.00
+clsFreePackOrder=20260528643147262207721
+```
+
+验证过程：
+
+- 代码支持优先使用永久密钥兜底，永久密钥为空时从 CVM metadata 读取实例角色 STS 临时凭证；COS、CMQ 和 AS 客户端已改为请求时获取凭证。
+- `npm run build` 和 `npm test -- --run tests/unit/cloud-runtime.test.ts` 通过；GitHub Actions Docker Build & Push `26528473445` 通过并推送 `latest`。
+- 基准机 `ins-big9dirk` 已在 CVM 控制台执行销毁/释放，控制台显示操作成功，刷新实例列表后不再显示该实例。
+- CLS 已开通并创建日志集 `model-optimizer`、日志主题 `model-optimizer-runtime`，用于后续 API、Dispatcher、Worker 统一日志采集。
+- CLS 新手免费资源包已领取，费用中心订单显示 `日志服务CLS / CLS预付费包 / 交易成功 / 0.00`；领取时未勾选自动续费。
+- 监控盘点结果：TDSQL-C 策略 `policy-uh3ag0g2` 已有系统预设通知模板，覆盖内存使用率和容量类指标；CVM 基础监控策略 `policy-u79zubvx` 已覆盖磁盘只读和 `ping` 不可达，但通知模板仍未配置，需要在更宽控制台视口或人工操作中补上。
+- 当前还没有为 `model-optimizer-1251022382` 创建专用 COS 告警，也没有业务级队列积压、Worker heartbeat 和 Job 失败率告警。
 
 已完成真实强杀 Worker 恢复验证：
 

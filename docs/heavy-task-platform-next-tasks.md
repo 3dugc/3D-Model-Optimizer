@@ -4,13 +4,29 @@
 
 ## P0 立即处理
 
-- [ ] 释放 Worker 基准机 `ins-big9dirk`。
+- [x] 释放 Worker 基准机 `ins-big9dirk`。
   - 前置确认：`img-om8cggg4` 可用，`asg-pj6qaput` 可冷启动 Worker，强杀恢复演练已通过。
+  - 结果：2026-05-28 在 CVM 控制台释放成功，实例列表已不再显示 `ins-big9dirk`。
 - [ ] 将永久 CAM Secret 迁移到角色、STS、密钥管理或用户数据注入。
   - 约束：不要创建新的 `modeloptimizer` API key。
   - 约束：密钥不得写入仓库、镜像或可复用文档。
-- [ ] 创建 CLS 日志主题。
+  - [x] 代码已支持 CVM/AS 实例角色 metadata STS 临时凭证，兼容现有永久密钥兜底。
+  - [x] GitHub Actions 已验证并推送支持角色凭证的 `latest` 镜像。
+  - [ ] 创建或复用运行时 CAM 角色，绑定 COS/CMQ runtime 权限和 Dispatcher AS 最小权限。
+  - [ ] 将入口 CVM 绑定运行时 CAM 角色。
+  - [ ] 更新 Worker AS 启动配置或实例模板，让弹性 Worker 绑定运行时 CAM 角色。
+  - [ ] 从 Portainer Stack 移除永久 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN`。
+  - [ ] 跑一次真实任务验证全链路使用实例角色临时凭证。
+  - [ ] 验证通过后停用旧永久密钥。
+- [x] 创建 CLS 日志主题。
+  - 结果：`model-optimizer` / `model-optimizer-runtime`，南京 `ap-nanjing`，30 天标准存储。
+- [x] 领取 CLS 新手免费资源包。
+  - 结果：`CLS预付费包` `10U` `3个月`，订单实付 `0.00`，交易成功。
 - [ ] 配置基础监控告警。
+  - [x] 盘点现有基础告警：TDSQL-C 已有系统通知模板；CVM 基础监控策略存在但缺通知模板。
+  - [ ] 为 CVM 基础监控策略 `policy-u79zubvx` 绑定通知模板。
+  - [ ] 为 `model-optimizer-1251022382` 创建 COS 上传/下载错误或流量异常告警。
+  - [ ] 为队列积压和 Worker heartbeat 配置业务指标告警。
 
 ## P1 外部系统接入
 

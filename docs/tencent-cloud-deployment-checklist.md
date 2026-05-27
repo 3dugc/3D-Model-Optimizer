@@ -15,7 +15,9 @@
 - [x] 创建运行时数据库账号：`async_task_runtime@%`，密码只配置在部署环境中，不写入仓库。
 - [x] 确认云内网数据库地址：`10.206.0.5:3306`。
 - [x] 代码支持 MySQL/Postgres 共享状态库，自动建表 `optimizer_jobs`、`optimizer_orders`、`optimizer_workers`、`optimizer_callback_deliveries`。
-- [ ] 创建 CLS 日志主题和必要监控告警。
+- [x] 创建 CLS 日志集 `model-optimizer` 和日志主题 `model-optimizer-runtime`，南京 `ap-nanjing`，30 天标准存储。
+- [x] 领取 CLS 新手免费资源包：`10U` / `3个月` / `0.00`，未勾选自动续费。
+- [ ] 创建必要监控告警并确认通知链路可达。
 
 ## 2. 权限与密钥
 
@@ -143,7 +145,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已保存 CVM 竞价启动模板：`lt-model-optimizer-worker-spot`，使用自定义镜像 `img-rxjo5rca`，无公网 IP。
 - [x] 已创建 AS 启动配置：`asc-model-optimizer-worker-spot` / `asc-lwvidj3l`。
 - [x] 已创建 AS 伸缩组：`asg-model-optimizer-worker-spot` / `asg-pj6qaput`。
-- [x] 已停止 Worker 基准机 `ins-big9dirk`，等待最终确认后释放。
+- [x] 已停止 Worker 基准机 `ins-big9dirk`。
 - [x] 已用 AS 伸缩组从 `0` 扩到 `1` 跑通真实弹性 Worker smoke test：`jobId=c7d3a25c-bd9a-4df0-aa90-b573c684b09d`。
 - [x] 已修复首版 Worker 镜像启动问题：shell 变量错误转义、无公网实例 `--pull always` 拉仓库超时。
 - [x] 已创建修复后 Worker 镜像：`model-optimizer-worker-elastic-20260527-fix1` / `img-hmvlx5n2`。
@@ -164,6 +166,7 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] 已用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test：`jobId=682a51b8-67c9-429d-9815-7dbb6d09b4e2`，`workerId=worker-cvm-ins-c72wkhws`。
 - [x] 记录当前 `BF1.LARGE8` 在南京一区竞价库存返回 `SpotSoldOut`，调度器需要规格 fallback。
 - [x] 伸缩组容量已设为 `min=0`、`desired=0`、`max=3`，当前不会自动拉起 Worker。
+- [x] 已释放 Worker 基准机 `ins-big9dirk` / `model-optimizer-worker-base`；控制台显示释放成功，实例列表已不再显示该实例。
 - [ ] 从 `4C8G / WORKER_CONCURRENCY=1` 开始压测，再评估 `8C16G / WORKER_CONCURRENCY=2`。
 - [x] 配置最大实例数，避免成本失控。
 - [ ] 配置缩容 drain 时间，让 Worker 停止领取新任务。
@@ -197,6 +200,9 @@ CALLBACK_MAX_ATTEMPTS=6
 
 ## 9. 监控告警
 
+- [x] 盘点现有云监控策略：TDSQL-C `policy-uh3ag0g2` 已有系统通知模板；CVM 基础监控 `policy-u79zubvx` 已覆盖磁盘只读和 `ping` 不可达，但通知模板未配置。
+- [ ] 为 CVM 基础监控策略 `policy-u79zubvx` 绑定通知模板，确保告警能发到接收人。
+- [ ] 为 `model-optimizer-1251022382` 创建 COS 上传/下载错误或流量异常告警。
 - [ ] 队列可见消息数告警。
 - [ ] 按 task type 统计队列积压、失败率和平均处理时长。
 - [ ] Worker heartbeat 丢失告警。
