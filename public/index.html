@@ -67,6 +67,8 @@
     /* Auth */
     .auth-bar { display: none; background: #fff; border-bottom: 1px solid #dee2e6; }
     .auth-bar.show { display: flex; }
+    .pay-qr { width: 180px; height: 180px; display: block; margin: 10px auto 8px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px; }
+    .pay-code { display: block; word-break: break-all; color: #6c757d; font-size: 0.68rem; line-height: 1.35; }
 
     .hidden { display: none !important; }
     .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
@@ -246,6 +248,7 @@
     let webToken = localStorage.getItem('web_token') || '';
     let rechargePackagesCents = [1000, 3000, 5000, 10000];
     let mockWechatLoginEnabled = false;
+    let nativePaymentConfigured = false;
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
     let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -285,6 +288,7 @@
         const data = await res.json();
         rechargePackagesCents = data.rechargePackagesCents || rechargePackagesCents;
         mockWechatLoginEnabled = !!data.wechat?.mockLoginEnabled;
+        nativePaymentConfigured = !!data.wechat?.nativePaymentConfigured;
         document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
         document.getElementById('wechatLoginHint').textContent = mockWechatLoginEnabled
           ? '当前为开发模拟登录，生产环境需要微信开放平台授权。'
@@ -333,6 +337,28 @@
       });
     }
 
+    function showWechatPayOrder(status, data) {
+      status.innerHTML = '';
+      const order = data.order || {};
+      if (data.qrCodeSvg) {
+        const label = document.createElement('div');
+        label.className = 'fw-semibold text-center';
+        label.textContent = `请用微信扫码支付 ${formatMoney(order.amountCents)}`;
+        const qr = document.createElement('img');
+        qr.className = 'pay-qr';
+        qr.alt = '微信支付二维码';
+        qr.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(data.qrCodeSvg)}`;
+        const code = document.createElement('code');
+        code.className = 'pay-code';
+        code.textContent = order.codeUrl || '';
+        status.append(label, qr, code);
+        return;
+      }
+      status.textContent = order.codeUrl
+        ? `请用微信扫码支付：${order.codeUrl}`
+        : '订单已创建，生产微信支付二维码需要配置商户凭证后展示。';
+    }
+
     async function createRechargeOrder(amountCents) {
       const status = document.getElementById('rechargeStatus');
       status.classList.remove('hidden');
@@ -345,7 +371,7 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || '创建充值订单失败');
-        if (mockWechatLoginEnabled && data.order?.id) {
+        if (mockWechatLoginEnabled && !nativePaymentConfigured && data.order?.id) {
           status.textContent = '开发模式：已创建模拟微信订单，正在模拟支付成功...';
           const paid = await fetch(`/api/v1/account/wallet/recharge-orders/${data.order.id}/mock-paid`, {
             method: 'POST',
@@ -357,9 +383,7 @@
           status.textContent = `充值成功：${formatMoney(paidData.order.amountCents)}`;
           displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: paidData.wallet.tenantId }, paidData.wallet);
         } else {
-          status.textContent = data.order?.codeUrl
-            ? `请用微信扫码支付：${data.order.codeUrl}`
-            : '订单已创建，生产微信支付二维码需要配置商户凭证后展示。';
+          showWechatPayOrder(status, data);
         }
       } catch (error) {
         status.textContent = error.message;

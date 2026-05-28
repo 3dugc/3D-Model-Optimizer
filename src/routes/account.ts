@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { accountService } from '../accounts/account-service';
@@ -141,7 +142,10 @@ router.post('/wallet/recharge-orders', requireWebUser, async (req: Request, res:
       description: body.description || '3D model optimizer recharge',
       notifyUrl: config.billing.wechatNotifyUrl || `${req.protocol}://${req.get('host')}/api/v1/account/wallet/wechat/notify`,
     });
-    res.status(201).json({ order });
+    const qrCodeSvg = order.codeUrl
+      ? await QRCode.toString(order.codeUrl, { type: 'svg', width: 180, margin: 1, errorCorrectionLevel: 'M' })
+      : undefined;
+    res.status(201).json({ order, qrCodeSvg });
   } catch (error) {
     next(error);
   }
