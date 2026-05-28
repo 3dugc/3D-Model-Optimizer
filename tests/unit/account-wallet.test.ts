@@ -9,6 +9,7 @@ import { AccountService } from '../../src/accounts/account-service';
 import { LocalJobStore } from '../../src/jobs/job-store';
 import { CloudJobService } from '../../src/jobs/job-service';
 import type { CloudJob } from '../../src/jobs/types';
+import type { CreateNativePaymentInput, PaymentNotification, PaymentProvider } from '../../src/billing/payment-provider';
 
 class RecordingQueue implements QueueProvider {
   readonly providerName = 'local' as const;
@@ -28,6 +29,28 @@ class RecordingQueue implements QueueProvider {
 
   async release(): Promise<void> {
     return undefined;
+  }
+}
+
+class PaidPaymentProvider implements PaymentProvider {
+  readonly outTradeNos: string[] = [];
+
+  async createNativeOrder(input: CreateNativePaymentInput): Promise<{ codeUrl: string }> {
+    this.outTradeNos.push(input.outTradeNo);
+    return { codeUrl: `weixin://wxpay/test/${input.outTradeNo}` };
+  }
+
+  async queryOrderByOutTradeNo(outTradeNo: string): Promise<PaymentNotification> {
+    return {
+      outTradeNo,
+      transactionId: `wx-${outTradeNo}`,
+      tradeState: 'SUCCESS',
+      amountCents: 1000,
+    };
+  }
+
+  async parsePaymentNotification(): Promise<PaymentNotification> {
+    throw new Error('Not used in this test.');
   }
 }
 
@@ -110,5 +133,24 @@ describe('account wallet billing', () => {
     expect(wallet.cashBalanceCents).toBe(1000);
     expect(wallet.frozenCents).toBe(0);
   });
-});
 
+  it('syncs a paid WeChat recharge order by querying the provider', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const payments = new PaidPaymentProvider();
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()), payments);
+    const login = await service.loginWithWechat({ openId: 'openid-c' });
+
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 1000,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    const synced = await service.syncRechargeOrderByOutTradeNo(login.user.id, order.outTradeNo);
+
+    expect(payments.outTradeNos).toContain(order.outTradeNo);
+    expect(synced.order.status).toBe('paid');
+    expect(synced.order.transactionId).toBe(`wx-${order.outTradeNo}`);
+    expect(synced.wallet.cashBalanceCents).toBe(1000);
+  });
+});

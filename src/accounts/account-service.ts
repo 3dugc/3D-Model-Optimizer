@@ -109,6 +109,28 @@ export class AccountService {
     return order;
   }
 
+  async syncRechargeOrder(userId: string, orderId: string): Promise<{ order: RechargeOrder; wallet: Wallet }> {
+    const order = await this.getRechargeOrder(userId, orderId);
+    const wallet = await this.getWallet(userId);
+    if (order.status === 'paid') return { order, wallet };
+    if (order.status !== 'pending_payment') return { order, wallet };
+
+    const payment = await this.payments.queryOrderByOutTradeNo(order.outTradeNo);
+    if (payment.tradeState !== 'SUCCESS') return { order, wallet };
+    if (payment.amountCents !== undefined && payment.amountCents !== order.amountCents) {
+      throw new HttpError(409, 'PAYMENT_AMOUNT_MISMATCH', 'WeChat payment amount does not match recharge order amount.');
+    }
+    return this.markRechargePaid(order.id, payment.transactionId);
+  }
+
+  async syncRechargeOrderByOutTradeNo(userId: string, outTradeNo: string): Promise<{ order: RechargeOrder; wallet: Wallet }> {
+    const order = await this.store.findRechargeOrderByOutTradeNo(outTradeNo);
+    if (!order || order.userId !== userId) {
+      throw new HttpError(404, 'RECHARGE_ORDER_NOT_FOUND', 'Recharge order not found.');
+    }
+    return this.syncRechargeOrder(userId, order.id);
+  }
+
   async markRechargePaid(orderId: string, transactionId?: string): Promise<{ order: RechargeOrder; wallet: Wallet }> {
     return this.store.markRechargePaid(orderId, transactionId);
   }

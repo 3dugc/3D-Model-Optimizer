@@ -27,6 +27,7 @@ export interface PaymentNotification {
 
 export interface PaymentProvider {
   createNativeOrder(input: CreateNativePaymentInput): Promise<NativePaymentOrder>;
+  queryOrderByOutTradeNo(outTradeNo: string): Promise<PaymentNotification>;
   parsePaymentNotification(headers: Record<string, unknown>, rawBody: Buffer | string): Promise<PaymentNotification>;
 }
 
@@ -136,6 +137,16 @@ export function buildWechatAuthorization(input: {
   return `WECHATPAY2-SHA256-RSA2048 ${fields.join(',')}`;
 }
 
+function toPaymentNotification(transaction: WechatTransaction): PaymentNotification {
+  return {
+    outTradeNo: transaction.out_trade_no,
+    transactionId: transaction.transaction_id,
+    tradeState: transaction.trade_state,
+    successTime: transaction.success_time,
+    amountCents: transaction.amount?.total,
+  };
+}
+
 export function decryptWechatResource(resource: WechatEncryptedResource, apiV3Key: string): WechatTransaction {
   if (resource.algorithm !== 'AEAD_AES_256_GCM') {
     throw new Error(`Unsupported WeChat Pay resource algorithm: ${resource.algorithm}`);
@@ -161,6 +172,13 @@ export function decryptWechatResource(resource: WechatEncryptedResource, apiV3Ke
 export class MockPaymentProvider implements PaymentProvider {
   async createNativeOrder(input: CreateNativePaymentInput): Promise<NativePaymentOrder> {
     return { codeUrl: `weixin://wxpay/mock/recharge/${input.outTradeNo}/${input.amountCents}` };
+  }
+
+  async queryOrderByOutTradeNo(outTradeNo: string): Promise<PaymentNotification> {
+    return {
+      outTradeNo,
+      tradeState: 'NOTPAY',
+    };
   }
 
   async parsePaymentNotification(_headers: Record<string, unknown>, rawBody: Buffer | string): Promise<PaymentNotification> {
@@ -225,6 +243,34 @@ export class WechatNativePaymentProvider implements PaymentProvider {
     return { codeUrl: parsed.code_url };
   }
 
+  async queryOrderByOutTradeNo(outTradeNo: string): Promise<PaymentNotification> {
+    const mchId = requireConfig(config.billing.wechatMchId, 'WECHAT_PAY_MCH_ID');
+    const serialNo = requireConfig(config.billing.wechatCertSerialNo, 'WECHAT_PAY_CERT_SERIAL_NO');
+    const privateKey = loadMerchantPrivateKey();
+    const url = new URL(`/v3/pay/transactions/out-trade-no/${encodeURIComponent(outTradeNo)}`, config.billing.wechatApiBaseUrl);
+    url.searchParams.set('mchid', mchId);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: buildWechatAuthorization({
+          method: 'GET',
+          url,
+          body: '',
+          mchId,
+          serialNo,
+          privateKey,
+        }),
+        Accept: 'application/json',
+        'User-Agent': '3d-model-optimizer/1.0',
+      },
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw new Error(`WeChat Pay query order failed: ${response.status} ${responseText}`);
+    }
+    return toPaymentNotification(JSON.parse(responseText) as WechatTransaction);
+  }
+
   async parsePaymentNotification(headers: Record<string, unknown>, rawBody: Buffer | string): Promise<PaymentNotification> {
     const bodyText = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : rawBody;
     this.verifyNotificationSignature(headers, bodyText);
@@ -234,13 +280,7 @@ export class WechatNativePaymentProvider implements PaymentProvider {
       body.resource,
       requireConfig(config.billing.wechatApiV3Key, 'WECHAT_PAY_API_V3_KEY')
     );
-    return {
-      outTradeNo: transaction.out_trade_no,
-      transactionId: transaction.transaction_id,
-      tradeState: transaction.trade_state,
-      successTime: transaction.success_time,
-      amountCents: transaction.amount?.total,
-    };
+    return toPaymentNotification(transaction);
   }
 
   private verifyNotificationSignature(headers: Record<string, unknown>, bodyText: string): void {

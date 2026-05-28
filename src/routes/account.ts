@@ -27,6 +27,10 @@ interface MockPaidBody {
   transactionId?: string;
 }
 
+interface SyncRechargeOrderBody {
+  outTradeNo?: string;
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -146,6 +150,26 @@ router.post('/wallet/recharge-orders', requireWebUser, async (req: Request, res:
       ? await QRCode.toString(order.codeUrl, { type: 'svg', width: 180, margin: 1, errorCorrectionLevel: 'M' })
       : undefined;
     res.status(201).json({ order, qrCodeSvg });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/wallet/recharge-orders/sync-by-out-trade-no', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = req.body as SyncRechargeOrderBody;
+    if (!body.outTradeNo) throw new HttpError(400, 'OUT_TRADE_NO_REQUIRED', 'outTradeNo is required.');
+    const result = await accountService.syncRechargeOrderByOutTradeNo(requireWebUserId(req), body.outTradeNo.trim());
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/wallet/recharge-orders/:orderId/sync', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await accountService.syncRechargeOrder(requireWebUserId(req), req.params.orderId);
+    res.json(result);
   } catch (error) {
     next(error);
   }

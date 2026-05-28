@@ -117,6 +117,10 @@
             </div>
             <div class="d-grid gap-1" id="rechargeButtons"></div>
             <div class="alert alert-light border small mt-2 mb-0 hidden" id="rechargeStatus"></div>
+            <div class="input-group input-group-sm mt-2">
+              <input class="form-control" id="syncOutTradeNoInput" placeholder="商户单号">
+              <button class="btn btn-outline-secondary" id="syncOutTradeNoBtn">同步账单</button>
+            </div>
           </div>
         </div>
 
@@ -249,6 +253,7 @@
     let rechargePackagesCents = [1000, 3000, 5000, 10000];
     let mockWechatLoginEnabled = false;
     let nativePaymentConfigured = false;
+    let rechargePollTimer = null;
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
     let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -359,6 +364,52 @@
         : '订单已创建，生产微信支付二维码需要配置商户凭证后展示。';
     }
 
+    function stopRechargePolling() {
+      if (rechargePollTimer) {
+        clearInterval(rechargePollTimer);
+        rechargePollTimer = null;
+      }
+    }
+
+    function renderPaidRecharge(status, result) {
+      const order = result.order;
+      const wallet = result.wallet;
+      status.textContent = `充值成功：${formatMoney(order.amountCents)}`;
+      displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: wallet.tenantId }, wallet);
+    }
+
+    async function syncRechargeOrder(orderId, status) {
+      const res = await fetch(`/api/v1/account/wallet/recharge-orders/${orderId}/sync`, {
+        method: 'POST',
+        headers: getWebAuthHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || '同步支付结果失败');
+      if (data.order?.status === 'paid') {
+        renderPaidRecharge(status, data);
+        stopRechargePolling();
+        return true;
+      }
+      return false;
+    }
+
+    function startRechargePolling(orderId, status) {
+      stopRechargePolling();
+      let attempts = 0;
+      rechargePollTimer = setInterval(async () => {
+        attempts += 1;
+        try {
+          await syncRechargeOrder(orderId, status);
+        } catch (error) {
+          if (attempts >= 60) {
+            status.textContent = error.message;
+            stopRechargePolling();
+          }
+        }
+        if (attempts >= 60) stopRechargePolling();
+      }, 3000);
+    }
+
     async function createRechargeOrder(amountCents) {
       const status = document.getElementById('rechargeStatus');
       status.classList.remove('hidden');
@@ -384,11 +435,37 @@
           displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: paidData.wallet.tenantId }, paidData.wallet);
         } else {
           showWechatPayOrder(status, data);
+          if (data.order?.id) startRechargePolling(data.order.id, status);
         }
       } catch (error) {
         status.textContent = error.message;
       }
     }
+
+    document.getElementById('syncOutTradeNoBtn').addEventListener('click', async () => {
+      const status = document.getElementById('rechargeStatus');
+      const input = document.getElementById('syncOutTradeNoInput');
+      const outTradeNo = input.value.trim();
+      if (!outTradeNo) return;
+      status.classList.remove('hidden');
+      status.textContent = '正在同步账单...';
+      try {
+        const res = await fetch('/api/v1/account/wallet/recharge-orders/sync-by-out-trade-no', {
+          method: 'POST',
+          headers: { ...getWebAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ outTradeNo }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || '同步账单失败');
+        if (data.order?.status === 'paid') {
+          renderPaidRecharge(status, data);
+        } else {
+          status.textContent = `账单状态：${data.order?.status || '待支付'}`;
+        }
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    });
 
     document.getElementById('mockWechatLoginBtn').addEventListener('click', async () => {
       try {
