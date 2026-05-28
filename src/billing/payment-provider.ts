@@ -74,14 +74,23 @@ function loadMerchantPrivateKey(): string {
 }
 
 function loadWechatPayPublicKey(): string {
+  if (config.billing.wechatPlatformPublicKey) {
+    return config.billing.wechatPlatformPublicKey.replace(/\\n/g, '\n');
+  }
   if (config.billing.wechatPlatformPublicKeyPath) {
     return readTextFile(config.billing.wechatPlatformPublicKeyPath, 'WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH');
+  }
+  if (config.billing.wechatPlatformCertificate) {
+    const certificate = new X509Certificate(config.billing.wechatPlatformCertificate.replace(/\\n/g, '\n'));
+    return certificate.publicKey.export({ type: 'spki', format: 'pem' }).toString();
   }
   if (config.billing.wechatPlatformCertificatePath) {
     const certificate = new X509Certificate(readTextFile(config.billing.wechatPlatformCertificatePath, 'WECHAT_PAY_PLATFORM_CERT_PATH'));
     return certificate.publicKey.export({ type: 'spki', format: 'pem' }).toString();
   }
-  throw new Error('WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH or WECHAT_PAY_PLATFORM_CERT_PATH is required for WeChat Pay notification verification.');
+  throw new Error(
+    'WECHAT_PAY_PLATFORM_PUBLIC_KEY, WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH, WECHAT_PAY_PLATFORM_CERT, or WECHAT_PAY_PLATFORM_CERT_PATH is required for WeChat Pay notification verification.'
+  );
 }
 
 function nonce(): string {
@@ -261,4 +270,3 @@ export function createPaymentProvider(): PaymentProvider {
   if (config.billing.mode === 'wechat_native') return new WechatNativePaymentProvider();
   return new MockPaymentProvider();
 }
-

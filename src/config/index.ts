@@ -120,7 +120,9 @@ export interface BillingConfig {
   wechatPrivateKeyPath?: string;
   wechatCertSerialNo?: string;
   wechatApiV3Key?: string;
+  wechatPlatformPublicKey?: string;
   wechatPlatformPublicKeyPath?: string;
+  wechatPlatformCertificate?: string;
   wechatPlatformCertificatePath?: string;
   wechatApiBaseUrl: string;
   wechatSupportFapiao: boolean;
@@ -309,7 +311,9 @@ export const config: ServerConfig = {
     wechatPrivateKeyPath: process.env.WECHAT_PAY_PRIVATE_KEY_PATH,
     wechatCertSerialNo: process.env.WECHAT_PAY_CERT_SERIAL_NO,
     wechatApiV3Key: process.env.WECHAT_PAY_API_V3_KEY,
+    wechatPlatformPublicKey: process.env.WECHAT_PAY_PLATFORM_PUBLIC_KEY,
     wechatPlatformPublicKeyPath: process.env.WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH,
+    wechatPlatformCertificate: process.env.WECHAT_PAY_PLATFORM_CERT,
     wechatPlatformCertificatePath: process.env.WECHAT_PAY_PLATFORM_CERT_PATH,
     wechatApiBaseUrl: process.env.WECHAT_PAY_API_BASE_URL || 'https://api.mch.weixin.qq.com',
     wechatSupportFapiao: parseBoolean(process.env.WECHAT_PAY_SUPPORT_FAPIAO, false),

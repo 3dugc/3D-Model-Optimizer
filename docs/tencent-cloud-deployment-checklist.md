@@ -89,10 +89,13 @@ QUEUE_POLLING_WAIT_SECONDS=10
 
 WECHAT_PAY_APP_ID=
 WECHAT_PAY_MCH_ID=
+WECHAT_PAY_PRIVATE_KEY=
 WECHAT_PAY_PRIVATE_KEY_PATH=
 WECHAT_PAY_CERT_SERIAL_NO=
 WECHAT_PAY_API_V3_KEY=
+WECHAT_PAY_PLATFORM_PUBLIC_KEY=
 WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH=
+WECHAT_PAY_PLATFORM_CERT=
 WECHAT_PAY_PLATFORM_CERT_PATH=
 WECHAT_PAY_SUPPORT_FAPIAO=false
 WECHAT_PAY_NOTIFY_URL=https://optimizer.example.com/api/v1/account/wallet/wechat/notify
@@ -109,6 +112,8 @@ JOB_MAX_ATTEMPTS=3
 JOB_TIMEOUT_SECONDS=1800
 DEFAULT_TASK_TYPE=model.optimize
 ```
+
+When SSH or host file upload is unavailable, `WECHAT_PAY_PRIVATE_KEY` and `WECHAT_PAY_PLATFORM_PUBLIC_KEY` / `WECHAT_PAY_PLATFORM_CERT` can be supplied directly through Portainer environment variables instead of PEM files. Prefer file paths for long-term operations; inline env is useful for first deployment or locked-down hosts. Keep merchant private key and APIv3 key out of Git and chat logs.
 
 ## 5. Worker 环境变量
 
