@@ -117,6 +117,50 @@
 - [ ] 第二阶段接入微信支付电子发票或第三方电子发票服务商。
 - [ ] 评估微信支付下单 `support_fapiao=true` 是否与“消费后开票”口径一致。
 
+## P1 统一登录中心
+
+- [x] 梳理旧 `gdgeek/auth` Yii2 方案。
+  - 结论：旧服务只作为流程和数据迁移参考，不继续扩展。
+  - 设计文档：`docs/unified-auth-service-design.md`。
+- [ ] 新建统一登录中心仓库。
+  - [ ] 初始化 Node.js 22 + TypeScript + Fastify/NestJS。
+  - [ ] 接入 Prisma + TDSQL-C MySQL。
+  - [ ] 接入 Redis，用于扫码 token、session 和限流。
+  - [ ] 配置 Docker、GitHub Actions 和 Portainer 部署。
+- [ ] 实现标准 OAuth/OIDC 登录中心。
+  - [ ] `GET /oauth/authorize`。
+  - [ ] `POST /oauth/token`。
+  - [ ] `GET /userinfo`。
+  - [ ] `POST /oauth/revoke`。
+  - [ ] `.well-known/openid-configuration`。
+  - [ ] `.well-known/jwks.json`。
+- [ ] 实现微信身份提供方。
+  - [ ] 公众号网页授权 `snsapi_userinfo`。
+  - [ ] 开放平台网站扫码 `snsapi_login`。
+  - [ ] 小程序 `wx.login` code 换 session。
+  - [ ] 保存每个渠道 `openid`。
+  - [ ] 用 `unionid` 合并同一用户。
+- [ ] 实现旧 Yii2 auth 兼容层，保证 `bujiaban.com` 无痛切换。
+  - [ ] 兼容 `GET /v1/wechat/qrcode`。
+  - [ ] 兼容 `GET /v1/wechat/refresh?token=...`。
+  - [ ] 兼容 `GET/POST /v1/wechat` 公众号消息推送。
+  - [ ] 兼容旧返回结构：`success/message/token`。
+  - [ ] 保留 legacy 随机登录 token，供旧站点继续使用。
+- [ ] 做旧数据迁移。
+  - [ ] 导出旧 `wechat` 表。
+  - [ ] 导入 `openid/unionid/user_id` 到新身份表。
+  - [ ] 校验重复 `unionid` 和孤立 `openid`。
+- [ ] 做 `bujiaban.com` 灰度切换。
+  - [ ] 部署 `auth-next.bujiaban.com`。
+  - [ ] 用测试页验证 `qrcode/refresh`。
+  - [ ] 临时切公众号消息推送 URL 做真实扫码测试。
+  - [ ] 把 `auth.bujiaban.com` 切到新服务。
+  - [ ] 保留旧 Yii2 auth 可回滚。
+- [ ] 接入 `3dugc.com`。
+  - [ ] 将当前站内微信 OAuth 改为跳转统一登录中心。
+  - [ ] 用统一 `auth_user_id/unionid` 绑定钱包用户。
+  - [ ] 去掉 `3dugc.com` 内的公众号 AppSecret。
+
 ## P1 客户回调
 
 - [ ] 准备客户回调密钥管理方式。

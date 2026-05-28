@@ -119,6 +119,24 @@
   - [ ] 10.17 评估并接入微信支付电子发票或第三方电子发票服务商
   - _Requirements: 8.1-8.6, 9.3, 9.5_
 
+- [ ] 10A. 新建统一登录中心并无痛替换旧 Yii2 auth
+  - [x] 10A.1 梳理旧 `gdgeek/auth` Yii2 登录流程
+  - [x] 10A.2 设计新统一登录中心技术方案
+  - [ ] 10A.3 新建 Node.js 22 + TypeScript + Fastify/NestJS 服务
+  - [ ] 10A.4 建立 `auth_users`、`auth_identities`、`oauth_clients`、`oauth_refresh_tokens` 等核心表
+  - [ ] 10A.5 实现 OAuth Authorization Code + PKCE
+  - [ ] 10A.6 实现公众号网页登录、网站扫码、小程序登录
+  - [ ] 10A.7 通过 `unionid` 合并 Web、公众号、小程序身份
+  - [ ] 10A.8 实现旧接口兼容层：`/v1/wechat/qrcode`
+  - [ ] 10A.9 实现旧接口兼容层：`/v1/wechat/refresh`
+  - [ ] 10A.10 实现旧接口兼容层：`GET/POST /v1/wechat`
+  - [ ] 10A.11 导入旧 `wechat.openid/unionid/user_id`
+  - [ ] 10A.12 部署 `auth-next.bujiaban.com` 做灰度验证
+  - [ ] 10A.13 切换 `auth.bujiaban.com` 到新服务，并保留旧 Yii2 回滚
+  - [ ] 10A.14 将 `bujiaban.com` 从 legacy token 逐步升级到标准 OAuth
+  - [ ] 10A.15 将 `3dugc.com` 改为统一登录中心
+  - _Requirements: 8.1, 10.3_
+
 - [ ] 11. 实现客户回调
   - [x] 11.1 定义 callback payload 和签名协议
   - [x] 11.2 实现 HMAC 签名
