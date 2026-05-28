@@ -27,6 +27,7 @@ import {
   progressRouter,
   cloudJobsRouter,
   billingRouter,
+  accountRouter,
 } from './routes';
 import { errorHandler, notFoundHandler, authMiddleware, isAuthEnabled } from './middleware';
 import { config } from './config';
@@ -102,6 +103,7 @@ app.use('/api/optimize', authMiddleware, optimizeRouter);
 app.use('/api/download', authMiddleware, downloadRouter);
 app.use('/api/status', authMiddleware, statusRouter);
 app.use('/api/analyze', authMiddleware, analyzeRouter);
+app.use('/api/v1/account', accountRouter);
 app.use('/api/v1', authMiddleware, cloudJobsRouter);
 app.use('/api/v1/payments', authMiddleware, billingRouter);
 

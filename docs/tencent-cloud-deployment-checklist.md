@@ -14,7 +14,7 @@
 - [x] 创建通用任务平台数据库：`async_task_platform`。
 - [x] 创建运行时数据库账号：`async_task_runtime@%`，密码只配置在部署环境中，不写入仓库。
 - [x] 确认云内网数据库地址：`10.206.0.5:3306`。
-- [x] 代码支持 MySQL/Postgres 共享状态库，自动建表 `optimizer_jobs`、`optimizer_orders`、`optimizer_workers`、`optimizer_callback_deliveries`。
+- [x] 代码支持 MySQL/Postgres 共享状态库，自动建表 `optimizer_jobs`、`optimizer_orders`、`optimizer_workers`、`optimizer_callback_deliveries`、`optimizer_users`、`optimizer_wallets`、`optimizer_wallet_ledger`、`optimizer_recharge_orders`、`optimizer_job_charges`。
 - [x] 创建 CLS 日志集 `model-optimizer` 和日志主题 `model-optimizer-runtime`，南京 `ap-nanjing`，30 天标准存储。
 - [x] 领取 CLS 新手免费资源包：`10U` / `3个月` / `0.00`，未勾选自动续费。
 - [ ] 创建必要监控告警并确认通知链路可达。
@@ -28,6 +28,8 @@
 - [x] 在 CAM 绑定 Dispatcher AS 最小权限策略，并验证移除 `QcloudASFullAccess` 后仍可自动扩缩 Spot CVM：`jobId=5dd794c5-83eb-4870-8182-c365b5855cdb`，`workerId=worker-cvm-ins-m6q6mezk`。
 - [x] 从运行时 CAM 子账号移除 `QcloudTATFullAccess`；TAT 排障权限只保留给人工运维账号或按需临时授权。
 - [ ] 准备微信支付商户号、AppID、商户私钥、证书序列号、API v3 key。
+- [ ] 准备微信开放平台网站应用 AppID / AppSecret。
+- [ ] 准备公众号网页授权 AppID / AppSecret。
 - [ ] 准备客户回调密钥管理方式。
 - [ ] 确认所有永久密钥只进入密钥管理或部署环境变量，不写入仓库。
 
@@ -90,7 +92,13 @@ WECHAT_PAY_MCH_ID=
 WECHAT_PAY_PRIVATE_KEY_PATH=
 WECHAT_PAY_CERT_SERIAL_NO=
 WECHAT_PAY_API_V3_KEY=
-WECHAT_PAY_NOTIFY_URL=https://optimizer.example.com/api/v1/payments/wechat/notify
+WECHAT_PAY_NOTIFY_URL=https://optimizer.example.com/api/v1/account/wallet/wechat/notify
+
+WEB_AUTH_SECRET=<long-random-secret>
+WEB_AUTH_TOKEN_TTL_SECONDS=2592000
+WEB_AUTH_MOCK_LOGIN_ENABLED=false
+DEFAULT_JOB_PRICE_CENTS=100
+RECHARGE_PACKAGES_CENTS=1000,3000,5000,10000
 
 MAX_GLOBAL_SLOTS=20
 MAX_SLOTS_PER_TENANT=2

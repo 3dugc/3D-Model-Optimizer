@@ -34,8 +34,10 @@ export interface CloudJob {
   callbackUrl?: string;
   callbackSecretId?: string;
   callbackSigningSecret?: string;
+  userId?: string;
   paymentRequired: boolean;
   orderId?: string;
+  chargeId?: string;
   workerId?: string;
   leaseExpiresAt?: string;
   lastHeartbeatAt?: string;
@@ -63,6 +65,7 @@ export interface CreateCloudJobInput {
   callbackUrl?: string;
   callbackSecretId?: string;
   callbackSigningSecret?: string;
+  userId?: string;
   paymentRequired?: boolean;
 }
 

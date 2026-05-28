@@ -39,6 +39,8 @@ export interface ServerConfig {
   database: DatabaseConfig;
   /** Billing and payment configuration */
   billing: BillingConfig;
+  /** Web user authentication configuration */
+  webAuth: WebAuthConfig;
 }
 
 /**
@@ -108,8 +110,19 @@ export interface CloudRuntimeConfig {
 export interface BillingConfig {
   mode: 'mock' | 'wechat_native' | 'disabled';
   orderStorePath: string;
+  accountStorePath: string;
   defaultJobPriceCents: number;
+  rechargePackagesCents: number[];
   wechatNotifyUrl?: string;
+}
+
+/**
+ * Web user authentication configuration.
+ */
+export interface WebAuthConfig {
+  tokenSecret: string;
+  tokenTtlSeconds: number;
+  mockLoginEnabled: boolean;
 }
 
 /**
@@ -153,6 +166,14 @@ function parseCsv(value: string | undefined): string[] {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function parsePositiveNumberCsv(value: string | undefined, defaultValue: number[]): number[] {
+  const parsed = parseCsv(value)
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .map((item) => Math.floor(item));
+  return parsed.length ? parsed : defaultValue;
 }
 
 function parseStateStoreProvider(): 'local' | 'mysql' | 'postgres' {
@@ -268,8 +289,17 @@ export const config: ServerConfig = {
           ? 'disabled'
           : 'mock',
     orderStorePath: process.env.ORDER_STORE_PATH || 'data/cloud/orders.json',
-    defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 800),
+    accountStorePath: process.env.ACCOUNT_STORE_PATH || 'data/cloud/accounts.json',
+    defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 100),
+    rechargePackagesCents: parsePositiveNumberCsv(process.env.RECHARGE_PACKAGES_CENTS, [1000, 3000, 5000, 10000]),
     wechatNotifyUrl: process.env.WECHAT_PAY_NOTIFY_URL,
+  },
+
+  // Web user auth settings
+  webAuth: {
+    tokenSecret: process.env.WEB_AUTH_SECRET || process.env.API_KEY || 'dev-web-auth-secret',
+    tokenTtlSeconds: parsePositiveNumber(process.env.WEB_AUTH_TOKEN_TTL_SECONDS, 30 * 24 * 60 * 60),
+    mockLoginEnabled: parseBoolean(process.env.WEB_AUTH_MOCK_LOGIN_ENABLED, false),
   },
 };
 

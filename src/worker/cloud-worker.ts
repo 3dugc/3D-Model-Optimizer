@@ -10,6 +10,7 @@ import { jobStore, type JobStore } from '../jobs/job-store';
 import type { CloudJob } from '../jobs/types';
 import { taskRegistry, type TaskRegistry } from '../tasks/registry';
 import { sendJobCallback } from '../callbacks/callback-service';
+import { accountService } from '../accounts/account-service';
 import logger from '../utils/logger';
 import type { WorkerHeartbeat, WorkerRuntimeConfig } from './types';
 import { createWorkerHeartbeatStore, type WorkerHeartbeatStore } from './worker-store';
@@ -175,6 +176,7 @@ export class CloudWorker {
         errorCode: undefined,
         errorMessage: undefined,
       });
+      await this.settleWalletCharge(completed.id);
       await this.safeCompleteQueueMessage(completed);
       await this.maybeSendCallback(completed);
     } catch (error) {
@@ -193,6 +195,7 @@ export class CloudWorker {
       });
       await this.safeReleaseQueueMessage(updated, shouldRetry ? delaySeconds : undefined);
       if (!shouldRetry) {
+        await this.releaseWalletCharge(updated.id, 'Job failed after all worker attempts; releasing held balance.');
         await this.maybeSendCallback(updated);
       }
     } finally {
@@ -205,6 +208,22 @@ export class CloudWorker {
     if (!job.callbackUrl) return;
     const result = await sendJobCallback(job, config.cloud.callbackTimeoutSeconds);
     logger.info({ jobId: job.id, callback: result }, 'Callback delivery attempted');
+  }
+
+  private async settleWalletCharge(jobId: string): Promise<void> {
+    try {
+      await accountService.settleJobCharge(jobId);
+    } catch (error) {
+      logger.error({ error, jobId }, 'Failed to settle wallet charge for completed job');
+    }
+  }
+
+  private async releaseWalletCharge(jobId: string, note: string): Promise<void> {
+    try {
+      await accountService.releaseJobCharge(jobId, note);
+    } catch (error) {
+      logger.error({ error, jobId }, 'Failed to release wallet charge for failed job');
+    }
   }
 
   private async safeCompleteQueueMessage(job: CloudJob): Promise<void> {
@@ -254,6 +273,7 @@ export class CloudWorker {
         });
         logger.warn({ jobId: job.id, attempts: job.attempts }, 'Recovered expired processing job lease');
       } else if (job.status === 'failed') {
+        await this.releaseWalletCharge(job.id, 'Worker lease expired after all attempts; releasing held balance.');
         await this.maybeSendCallback(job);
         logger.error({ jobId: job.id, attempts: job.attempts }, 'Expired processing job lease exceeded max attempts');
       }

@@ -124,30 +124,42 @@ stateDiagram-v2
 认证：
 
 ```text
+GET  /api/v1/account/auth/providers
+POST /api/v1/account/auth/wechat/mock-login
 POST /api/v1/auth/wechat/qr-login
 GET  /api/v1/auth/wechat/callback
 POST /api/v1/auth/logout
-GET  /api/v1/me
+GET  /api/v1/account/me
 ```
 
 钱包和支付：
 
 ```text
-GET  /api/v1/wallet
-GET  /api/v1/wallet/ledger
-POST /api/v1/wallet/recharge-orders
-GET  /api/v1/wallet/recharge-orders/:orderId
-POST /api/v1/payments/wechat/notify
+GET  /api/v1/account/wallet
+GET  /api/v1/account/wallet/ledger
+POST /api/v1/account/wallet/recharge-orders
+GET  /api/v1/account/wallet/recharge-orders/:orderId
+POST /api/v1/account/wallet/recharge-orders/:orderId/mock-paid
+POST /api/v1/account/wallet/wechat/notify
 ```
 
 任务扣费：
 
 ```text
+POST /api/v1/account/wallet/jobs
 POST /api/v1/jobs
 POST /api/v1/jobs/:jobId/complete-upload
 POST /api/v1/jobs/:jobId/cancel
 GET  /api/v1/jobs/:jobId
 ```
+
+当前落地状态：
+
+- 已实现账户、钱包、充值订单、余额流水和任务冻结/扣费后端。
+- 已实现本地开发用的模拟微信登录和模拟支付入账。
+- 已在现有 Web UI 增加账户、余额和充值面板。
+- 已实现 Worker 成功完成后扣费、最终系统失败后释放冻结余额。
+- 生产微信登录、微信支付验签/解密、真实二维码和发票自动化仍需要微信平台凭证。
 
 发票：
 

@@ -149,4 +149,108 @@ async function runMigrations(client: SqlQueryable): Promise<void> {
     CREATE INDEX IF NOT EXISTS optimizer_callback_job_status_idx
       ON optimizer_callback_deliveries (job_id, status, next_retry_at)
   `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_users (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      wechat_openid TEXT NOT NULL UNIQUE,
+      wechat_unionid TEXT,
+      user_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_users_tenant_idx
+      ON optimizer_users (tenant_id)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_wallets (
+      user_id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      cash_balance_cents INTEGER NOT NULL DEFAULT 0,
+      bonus_balance_cents INTEGER NOT NULL DEFAULT 0,
+      frozen_cents INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_wallets_tenant_idx
+      ON optimizer_wallets (tenant_id)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_wallet_ledger (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      cash_delta_cents INTEGER NOT NULL DEFAULT 0,
+      bonus_delta_cents INTEGER NOT NULL DEFAULT 0,
+      frozen_delta_cents INTEGER NOT NULL DEFAULT 0,
+      balance_after_cash_cents INTEGER NOT NULL DEFAULT 0,
+      frozen_after_cents INTEGER NOT NULL DEFAULT 0,
+      recharge_order_id TEXT,
+      job_id TEXT,
+      job_charge_id TEXT,
+      ledger_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_wallet_ledger_user_idx
+      ON optimizer_wallet_ledger (user_id, created_at DESC)
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_wallet_ledger_job_idx
+      ON optimizer_wallet_ledger (job_id)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_recharge_orders (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      amount_cents INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      out_trade_no TEXT NOT NULL UNIQUE,
+      transaction_id TEXT,
+      code_url TEXT,
+      expires_at TIMESTAMPTZ NOT NULL,
+      paid_at TIMESTAMPTZ,
+      order_json JSONB NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_recharge_orders_user_status_idx
+      ON optimizer_recharge_orders (user_id, status, created_at DESC)
+  `);
+
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS optimizer_job_charges (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      job_id TEXT NOT NULL UNIQUE,
+      amount_cents INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      charge_json JSONB NOT NULL,
+      held_at TIMESTAMPTZ NOT NULL,
+      charged_at TIMESTAMPTZ,
+      released_at TIMESTAMPTZ,
+      refunded_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS optimizer_job_charges_user_status_idx
+      ON optimizer_job_charges (user_id, status, created_at DESC)
+  `);
 }

@@ -163,4 +163,91 @@ async function runMigrations(client: MySqlQueryable): Promise<void> {
       KEY optimizer_callback_job_status_idx (job_id, status, next_retry_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS optimizer_users (
+      id VARCHAR(128) PRIMARY KEY,
+      tenant_id VARCHAR(128) NOT NULL,
+      wechat_openid VARCHAR(191) NOT NULL,
+      wechat_unionid VARCHAR(191),
+      user_json JSON NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      UNIQUE KEY optimizer_users_wechat_openid_idx (wechat_openid),
+      KEY optimizer_users_tenant_idx (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS optimizer_wallets (
+      user_id VARCHAR(128) PRIMARY KEY,
+      tenant_id VARCHAR(128) NOT NULL,
+      cash_balance_cents INT NOT NULL DEFAULT 0,
+      bonus_balance_cents INT NOT NULL DEFAULT 0,
+      frozen_cents INT NOT NULL DEFAULT 0,
+      updated_at DATETIME(3) NOT NULL,
+      KEY optimizer_wallets_tenant_idx (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS optimizer_wallet_ledger (
+      id VARCHAR(128) PRIMARY KEY,
+      user_id VARCHAR(128) NOT NULL,
+      tenant_id VARCHAR(128) NOT NULL,
+      type VARCHAR(64) NOT NULL,
+      cash_delta_cents INT NOT NULL DEFAULT 0,
+      bonus_delta_cents INT NOT NULL DEFAULT 0,
+      frozen_delta_cents INT NOT NULL DEFAULT 0,
+      balance_after_cash_cents INT NOT NULL DEFAULT 0,
+      frozen_after_cents INT NOT NULL DEFAULT 0,
+      recharge_order_id VARCHAR(128),
+      job_id VARCHAR(128),
+      job_charge_id VARCHAR(128),
+      ledger_json JSON NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      KEY optimizer_wallet_ledger_user_idx (user_id, created_at),
+      KEY optimizer_wallet_ledger_job_idx (job_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS optimizer_recharge_orders (
+      id VARCHAR(128) PRIMARY KEY,
+      user_id VARCHAR(128) NOT NULL,
+      tenant_id VARCHAR(128) NOT NULL,
+      status VARCHAR(64) NOT NULL,
+      amount_cents INT NOT NULL,
+      currency VARCHAR(16) NOT NULL,
+      provider VARCHAR(64) NOT NULL,
+      out_trade_no VARCHAR(191) NOT NULL UNIQUE,
+      transaction_id VARCHAR(191),
+      code_url TEXT,
+      expires_at DATETIME(3) NOT NULL,
+      paid_at DATETIME(3),
+      order_json JSON NOT NULL,
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      KEY optimizer_recharge_orders_user_status_idx (user_id, status, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS optimizer_job_charges (
+      id VARCHAR(128) PRIMARY KEY,
+      user_id VARCHAR(128) NOT NULL,
+      tenant_id VARCHAR(128) NOT NULL,
+      job_id VARCHAR(128) NOT NULL UNIQUE,
+      amount_cents INT NOT NULL,
+      status VARCHAR(64) NOT NULL,
+      charge_json JSON NOT NULL,
+      held_at DATETIME(3) NOT NULL,
+      charged_at DATETIME(3),
+      released_at DATETIME(3),
+      refunded_at DATETIME(3),
+      created_at DATETIME(3) NOT NULL,
+      updated_at DATETIME(3) NOT NULL,
+      KEY optimizer_job_charges_user_status_idx (user_id, status, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 }

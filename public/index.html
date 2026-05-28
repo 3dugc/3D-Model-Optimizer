@@ -92,6 +92,32 @@
 
     <div class="main-content">
       <div class="sidebar">
+        <!-- Account and wallet -->
+        <div class="sidebar-section">
+          <h6><i class="bi bi-person-circle"></i> 账户与充值</h6>
+          <div id="accountLoggedOut">
+            <p class="text-muted small mb-2" id="wechatLoginHint">微信登录能力待配置。</p>
+            <button class="btn btn-sm btn-outline-success w-100" id="mockWechatLoginBtn">
+              <i class="bi bi-wechat me-1"></i>开发模拟微信登录
+            </button>
+          </div>
+          <div id="accountLoggedIn" class="hidden">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                <div class="fw-semibold small" id="accountNickname">微信用户</div>
+                <div class="text-muted" style="font-size:0.7rem;" id="accountTenantId"></div>
+              </div>
+              <button class="btn btn-sm btn-outline-secondary" id="logoutWebUserBtn"><i class="bi bi-box-arrow-right"></i></button>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-6"><div class="stat-card"><div class="stat-value" id="cashBalance">¥0.00</div><div class="stat-label">可用余额</div></div></div>
+              <div class="col-6"><div class="stat-card"><div class="stat-value" id="frozenBalance">¥0.00</div><div class="stat-label">冻结金额</div></div></div>
+            </div>
+            <div class="d-grid gap-1" id="rechargeButtons"></div>
+            <div class="alert alert-light border small mt-2 mb-0 hidden" id="rechargeStatus"></div>
+          </div>
+        </div>
+
         <!-- Upload -->
         <div class="sidebar-section">
           <h6><i class="bi bi-cloud-arrow-up"></i> 上传模型</h6>
@@ -217,6 +243,9 @@
 
     let selectedFile = null, currentTaskId = null, modelAnalysis = null;
     let apiKey = localStorage.getItem('api_key') || '';
+    let webToken = localStorage.getItem('web_token') || '';
+    let rechargePackagesCents = [1000, 3000, 5000, 10000];
+    let mockWechatLoginEnabled = false;
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
     let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -247,6 +276,118 @@
       document.getElementById('authBar').classList.remove('show');
     });
     function getAuthHeaders() { return apiKey ? { 'x-api-key': apiKey } : {}; }
+    function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
+    function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
+
+    async function loadAccountProviders() {
+      try {
+        const res = await fetch('/api/v1/account/auth/providers');
+        const data = await res.json();
+        rechargePackagesCents = data.rechargePackagesCents || rechargePackagesCents;
+        mockWechatLoginEnabled = !!data.wechat?.mockLoginEnabled;
+        document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
+        document.getElementById('wechatLoginHint').textContent = mockWechatLoginEnabled
+          ? '当前为开发模拟登录，生产环境需要微信开放平台授权。'
+          : '生产登录需要配置微信开放平台网站应用和公众号网页授权。';
+        renderRechargeButtons();
+      } catch (error) {
+        console.warn('Account provider metadata unavailable:', error);
+      }
+    }
+
+    async function refreshAccount() {
+      if (!webToken) {
+        document.getElementById('accountLoggedOut').classList.remove('hidden');
+        document.getElementById('accountLoggedIn').classList.add('hidden');
+        return;
+      }
+      try {
+        const res = await fetch('/api/v1/account/me', { headers: getWebAuthHeaders() });
+        if (!res.ok) throw new Error('web auth expired');
+        const data = await res.json();
+        displayAccount(data.user, data.wallet);
+      } catch (error) {
+        localStorage.removeItem('web_token');
+        webToken = '';
+        document.getElementById('accountLoggedOut').classList.remove('hidden');
+        document.getElementById('accountLoggedIn').classList.add('hidden');
+      }
+    }
+
+    function displayAccount(user, wallet) {
+      document.getElementById('accountLoggedOut').classList.add('hidden');
+      document.getElementById('accountLoggedIn').classList.remove('hidden');
+      document.getElementById('accountNickname').textContent = user.nickname || '微信用户';
+      document.getElementById('accountTenantId').textContent = user.tenantId;
+      document.getElementById('cashBalance').textContent = formatMoney(wallet.cashBalanceCents);
+      document.getElementById('frozenBalance').textContent = formatMoney(wallet.frozenCents);
+    }
+
+    function renderRechargeButtons() {
+      const container = document.getElementById('rechargeButtons');
+      container.innerHTML = rechargePackagesCents.map((amount) => (
+        `<button class="btn btn-sm btn-outline-primary recharge-btn" data-amount="${amount}">充值 ${formatMoney(amount)}</button>`
+      )).join('');
+      container.querySelectorAll('.recharge-btn').forEach((button) => {
+        button.addEventListener('click', () => createRechargeOrder(Number(button.dataset.amount)));
+      });
+    }
+
+    async function createRechargeOrder(amountCents) {
+      const status = document.getElementById('rechargeStatus');
+      status.classList.remove('hidden');
+      status.textContent = '正在创建微信支付订单...';
+      try {
+        const res = await fetch('/api/v1/account/wallet/recharge-orders', {
+          method: 'POST',
+          headers: { ...getWebAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amountCents }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || '创建充值订单失败');
+        if (mockWechatLoginEnabled && data.order?.id) {
+          status.textContent = '开发模式：已创建模拟微信订单，正在模拟支付成功...';
+          const paid = await fetch(`/api/v1/account/wallet/recharge-orders/${data.order.id}/mock-paid`, {
+            method: 'POST',
+            headers: { ...getWebAuthHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transactionId: `mock-${Date.now()}` }),
+          });
+          const paidData = await paid.json();
+          if (!paid.ok) throw new Error(paidData.error?.message || '模拟支付失败');
+          status.textContent = `充值成功：${formatMoney(paidData.order.amountCents)}`;
+          displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: paidData.wallet.tenantId }, paidData.wallet);
+        } else {
+          status.textContent = data.order?.codeUrl
+            ? `请用微信扫码支付：${data.order.codeUrl}`
+            : '订单已创建，生产微信支付二维码需要配置商户凭证后展示。';
+        }
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    document.getElementById('mockWechatLoginBtn').addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/v1/account/auth/wechat/mock-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nickname: '开发测试用户' }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || '登录失败');
+        webToken = data.token;
+        localStorage.setItem('web_token', webToken);
+        displayAccount(data.user, data.wallet);
+      } catch (error) {
+        showError(error.message);
+      }
+    });
+    document.getElementById('logoutWebUserBtn').addEventListener('click', () => {
+      webToken = '';
+      localStorage.removeItem('web_token');
+      refreshAccount();
+    });
+    loadAccountProviders().then(refreshAccount);
 
     // ===== Three.js =====
     function createScene(container) {

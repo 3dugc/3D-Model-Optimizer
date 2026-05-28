@@ -103,6 +103,7 @@ export class CloudJobService {
       callbackUrl: input.callbackUrl,
       callbackSecretId: input.callbackSecretId,
       callbackSigningSecret: input.callbackSigningSecret,
+      userId: input.userId,
       paymentRequired,
       attempts: 0,
       maxAttempts: config.cloud.jobMaxAttempts,
@@ -153,10 +154,25 @@ export class CloudJobService {
   async markPaid(jobId: string, orderId: string): Promise<CloudJob> {
     const job = await this.requireJob(jobId);
     if (!job.uploadedAt) {
-      return this.store.update(jobId, { orderId });
+      return this.store.update(jobId, { orderId, paymentRequired: false });
     }
     const updated = await this.store.transition(jobId, 'queued', {
       orderId,
+      paymentRequired: false,
+      queuedAt: nowIso(),
+    });
+    await this.publish(updated);
+    return updated;
+  }
+
+  async markWalletChargeHeld(jobId: string, chargeId: string): Promise<CloudJob> {
+    const job = await this.requireJob(jobId);
+    if (!job.uploadedAt) {
+      return this.store.update(jobId, { chargeId, paymentRequired: false });
+    }
+    const updated = await this.store.transition(jobId, 'queued', {
+      chargeId,
+      paymentRequired: false,
       queuedAt: nowIso(),
     });
     await this.publish(updated);
