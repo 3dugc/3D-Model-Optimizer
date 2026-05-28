@@ -126,18 +126,35 @@
 4. WHEN 客户回调失败或超时 THEN THE Callback_Service SHALL 按指数退避重试。
 5. THE Control_API SHALL 提供查询和人工重放 Callback_Delivery 的能力。
 
-### Requirement 8: 微信 Native 扫码支付
+### Requirement 8: 微信登录、充值和扫码支付
 
-**User Story:** 作为 Web 用户，我希望扫码支付后再处理模型，以便平台按任务收费。
+**User Story:** 作为 Web 用户，我希望用微信登录、充值余额后处理模型，以便平台按任务收费并保留消费和发票记录。
 
 #### Acceptance Criteria
 
-1. WHEN Web 用户创建付费 Job THEN THE Billing_Service SHALL 创建 Order 并调用微信 Native 下单接口获取 `code_url`。
-2. THE Web_UI SHALL 使用 `code_url` 生成二维码供微信扫码支付。
-3. WHEN 微信支付回调到达 THEN THE Billing_Service SHALL 验签、解密并幂等更新 Order。
-4. WHEN Order 支付成功 THEN THE Billing_Service SHALL 允许关联 Job 入队。
-5. WHEN Order 过期、关闭或退款 THEN THE Billing_Service SHALL 阻止未授权 Job 继续处理。
-6. THE Billing_Service SHALL 支持后续 API 租户余额或套餐模式，不要求每个 API Job 都人工扫码。
+1. THE Web_UI SHALL 支持微信扫码登录和微信内网页授权登录。
+2. WHEN Web 用户创建充值订单 THEN THE Billing_Service SHALL 调用微信 Native 下单接口获取 `code_url`。
+3. THE Web_UI SHALL 使用 `code_url` 生成二维码供微信扫码支付。
+4. WHEN 微信支付回调到达 THEN THE Billing_Service SHALL 验签、解密并幂等更新充值订单。
+5. WHEN 充值订单支付成功 THEN THE Billing_Service SHALL 幂等增加用户钱包现金余额。
+6. WHEN Web 用户创建付费 Job THEN THE Billing_Service SHALL 冻结 `100` 分余额。
+7. WHEN Job 成功 THEN THE Billing_Service SHALL 将冻结余额正式扣费。
+8. WHEN Job 系统失败或任务未开始前取消 THEN THE Billing_Service SHALL 释放冻结余额。
+9. WHEN Order 过期、关闭或退款 THEN THE Billing_Service SHALL 阻止未授权 Job 继续处理。
+10. THE Billing_Service SHALL 支持后续 API 租户余额或套餐模式，不要求每个 API Job 都人工扫码。
+
+### Requirement 8A: 发票中心
+
+**User Story:** 作为付费用户，我希望能按实际消费申请发票，以便个人或企业报销和财务归档。
+
+#### Acceptance Criteria
+
+1. THE Web_UI SHALL 提供发票中心，展示可开票金额、已开票金额、发票抬头和申请记录。
+2. THE Billing_Service SHALL 按“已消费现金金额 - 已开票金额 - 已退款金额”计算可开票金额。
+3. THE Billing_Service SHALL NOT 将未消费余额、冻结余额或赠送余额计入可开票金额。
+4. THE Web_UI SHALL 支持个人抬头和企业抬头。
+5. THE System SHALL 支持人工开数电普通发票并回填下载链接。
+6. THE System SHALL 预留微信支付电子发票或第三方电子发票服务商接口。
 
 ### Requirement 9: 安全、限额和幂等
 

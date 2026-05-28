@@ -266,7 +266,9 @@ active -> lost
 
 ## Payment Design
 
-Wechat Native payment is used for scan-to-pay.
+Wechat Native payment is used for scan-to-pay. The Web product uses WeChat login plus a prepaid wallet so users do not need to scan and pay for every single model optimization.
+
+Frontend payment and invoice structure is documented in `docs/frontend-payment-invoice-design.md`.
 
 1. Control API creates an Order.
 2. Billing service calls Wechat Native prepay.
@@ -274,9 +276,18 @@ Wechat Native payment is used for scan-to-pay.
 4. Web UI renders QR code.
 5. Wechat sends payment notification to API.
 6. API verifies signature, decrypts payload, marks Order paid.
-7. Related Job is allowed to queue.
+7. Recharge Order is posted into the user's wallet ledger.
+8. Job creation freezes `100` cents.
+9. Job success charges the frozen balance; system failure or pre-start cancellation releases it.
 
 Payment callback handling must be idempotent because Wechat can retry notifications.
+
+Invoice center rules:
+
+- Invoiceable amount is consumed cash amount minus already invoiced amount and refunded amount.
+- Unused balance, frozen balance and bonus balance are not invoiceable.
+- Launch phase supports manual digital ordinary invoice issuance and download URL backfill.
+- Later phases can integrate WeChat Pay e-invoice or a third-party invoice provider.
 
 ## Callback Design
 
