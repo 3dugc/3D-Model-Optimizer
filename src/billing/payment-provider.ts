@@ -126,14 +126,14 @@ export function buildWechatAuthorization(input: {
   const timestamp = input.timestamp || timestampSeconds();
   const message = `${input.method}\n${canonicalUrl(input.url)}\n${timestamp}\n${nonceStr}\n${input.body}\n`;
   const signature = createSign('RSA-SHA256').update(message).sign(input.privateKey, 'base64');
-  return [
-    'WECHATPAY2-SHA256-RSA2048',
+  const fields = [
     `mchid="${input.mchId}"`,
     `nonce_str="${nonceStr}"`,
     `timestamp="${timestamp}"`,
     `serial_no="${input.serialNo}"`,
     `signature="${signature}"`,
-  ].join(' ');
+  ];
+  return `WECHATPAY2-SHA256-RSA2048 ${fields.join(',')}`;
 }
 
 export function decryptWechatResource(resource: WechatEncryptedResource, apiV3Key: string): WechatTransaction {

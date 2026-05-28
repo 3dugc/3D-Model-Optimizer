@@ -34,6 +34,8 @@ describe('WeChat payment provider helpers', () => {
 
     expect(header).toContain('WECHATPAY2-SHA256-RSA2048');
     expect(header).toContain('mchid="1900000001"');
+    expect(header).toContain('mchid="1900000001",nonce_str="nonce-for-test"');
+    expect(header).toContain('timestamp="1700000000",serial_no="ABC123"');
     expect(verifier.verify(publicPem, signature, 'base64')).toBe(true);
   });
 
@@ -71,4 +73,3 @@ describe('WeChat payment provider helpers', () => {
     });
   });
 });
-
