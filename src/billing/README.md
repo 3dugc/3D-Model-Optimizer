@@ -1,8 +1,8 @@
 # Billing
 
-This directory is reserved for payment and tenant billing logic.
+This directory contains payment and tenant billing logic.
 
-Planned responsibilities:
+Responsibilities:
 
 - Wechat Native payment order creation.
 - Payment notification verification and decryption.
@@ -11,3 +11,5 @@ Planned responsibilities:
 - Future prepaid balance or subscription billing for API tenants.
 
 Payment providers must never trust client-side payment state. Only verified provider callbacks or verified provider order queries should mark an order as paid.
+
+Production WeChat Pay requires `WECHAT_PAY_APP_ID`, `WECHAT_PAY_MCH_ID`, merchant private key, merchant certificate serial number, API v3 key, and the WeChat Pay platform public key or platform certificate for callback verification.

@@ -3,6 +3,7 @@ import { config } from '../config';
 import { cloudJobService, type CloudJobService } from '../jobs/job-service';
 import type { CloudJob } from '../jobs/types';
 import { HttpError } from '../utils/http-error';
+import { createPaymentProvider, type PaymentProvider } from '../billing/payment-provider';
 import { accountStore, type AccountStore } from './account-store';
 import { createWebUserToken } from './token';
 import type {
@@ -42,7 +43,8 @@ function assertRechargePackage(amountCents: number): void {
 export class AccountService {
   constructor(
     private readonly store: AccountStore = accountStore,
-    private readonly jobs: CloudJobService = cloudJobService
+    private readonly jobs: CloudJobService = cloudJobService,
+    private readonly payments: PaymentProvider = createPaymentProvider()
   ) {}
 
   async loginWithWechat(input: UpsertWechatUserInput): Promise<{ user: WebUser; wallet: Wallet; token: string }> {
@@ -72,6 +74,18 @@ export class AccountService {
     assertRechargePackage(input.amountCents);
     const user = await this.requireUser(input.userId);
     const createdAt = nowIso();
+    const expiresAt = addMinutes(new Date(), 30);
+    const outTradeNo = createOutTradeNo('RCH');
+    const nativePayment = await this.payments.createNativeOrder({
+      amountCents: input.amountCents,
+      currency: 'CNY',
+      description: input.description,
+      outTradeNo,
+      notifyUrl: input.notifyUrl,
+      expiresAt,
+      attach: user.tenantId,
+      supportFapiao: config.billing.wechatSupportFapiao,
+    });
     const order: RechargeOrder = {
       id: uuidv4(),
       userId: user.id,
@@ -80,12 +94,9 @@ export class AccountService {
       amountCents: input.amountCents,
       currency: 'CNY',
       provider: 'wechat_native',
-      outTradeNo: createOutTradeNo('RCH'),
-      codeUrl:
-        config.billing.mode === 'mock'
-          ? `weixin://wxpay/mock/recharge/${user.id}/${input.amountCents}`
-          : undefined,
-      expiresAt: addMinutes(new Date(), 30),
+      outTradeNo,
+      codeUrl: nativePayment.codeUrl,
+      expiresAt,
       createdAt,
       updatedAt: createdAt,
     };
@@ -106,6 +117,14 @@ export class AccountService {
     const order = await this.store.findRechargeOrderByOutTradeNo(outTradeNo);
     if (!order) throw new HttpError(404, 'RECHARGE_ORDER_NOT_FOUND', 'Recharge order not found.');
     return this.markRechargePaid(order.id, transactionId);
+  }
+
+  async handlePaymentNotification(headers: Record<string, unknown>, rawBody: Buffer | string): Promise<{ order: RechargeOrder; wallet: Wallet }> {
+    const notification = await this.payments.parsePaymentNotification(headers, rawBody);
+    if (notification.tradeState !== 'SUCCESS') {
+      throw new HttpError(409, 'PAYMENT_NOT_SUCCESS', `Payment trade state is ${notification.tradeState}.`);
+    }
+    return this.markRechargePaidByOutTradeNo(notification.outTradeNo, notification.transactionId);
   }
 
   async createPaidWebJob(input: CreatePaidWebJobInput): Promise<{ job: CloudJob; wallet: Wallet }> {
@@ -140,4 +159,3 @@ export class AccountService {
 }
 
 export const accountService = new AccountService();
-

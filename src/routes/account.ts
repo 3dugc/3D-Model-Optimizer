@@ -64,7 +64,15 @@ router.get('/auth/providers', (_req: Request, res: Response) => {
   res.json({
     wechat: {
       mockLoginEnabled: config.webAuth.mockLoginEnabled,
-      productionLoginConfigured: false,
+      productionLoginConfigured: Boolean(
+        config.billing.wechatAppId &&
+          config.billing.wechatMchId &&
+          (config.billing.wechatPrivateKey || config.billing.wechatPrivateKeyPath) &&
+          config.billing.wechatCertSerialNo &&
+          config.billing.wechatApiV3Key &&
+          (config.billing.wechatPlatformPublicKeyPath || config.billing.wechatPlatformCertificatePath)
+      ),
+      nativePaymentConfigured: config.billing.mode === 'wechat_native',
       requiredBeforeProduction: [
         '微信开放平台网站应用 AppID / AppSecret',
         '公众号网页授权 AppID / AppSecret（微信内浏览器）',
@@ -166,20 +174,15 @@ router.post('/wallet/recharge-orders/:orderId/mock-paid', requireWebUser, async 
 
 router.post('/wallet/wechat/notify', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (config.billing.mode !== 'mock') {
-      res.status(501).json({
-        success: false,
-        error: {
-          code: 'WECHAT_NOTIFY_NOT_CONFIGURED',
-          message: 'Wechat Pay notification verification needs merchant credentials and API v3 key.',
-        },
-      });
-      return;
-    }
-    const body = req.body as MockPaidBody;
-    const result = body.outTradeNo
-      ? await accountService.markRechargePaidByOutTradeNo(body.outTradeNo, body.transactionId)
-      : await accountService.markRechargePaid(body.orderId || '', body.transactionId);
+    const result =
+      config.billing.mode === 'mock'
+        ? await (async () => {
+            const body = req.body as MockPaidBody;
+            return body.outTradeNo
+              ? accountService.markRechargePaidByOutTradeNo(body.outTradeNo, body.transactionId)
+              : accountService.markRechargePaid(body.orderId || '', body.transactionId);
+          })()
+        : await accountService.handlePaymentNotification(req.headers, req.rawBody || Buffer.from(JSON.stringify(req.body)));
     res.json({ code: 'SUCCESS', message: '成功', ...result });
   } catch (error) {
     next(error);
@@ -200,4 +203,3 @@ router.post('/wallet/jobs', requireWebUser, async (req: Request, res: Response, 
 });
 
 export default router;
-

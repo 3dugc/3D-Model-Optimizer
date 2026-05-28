@@ -34,6 +34,14 @@ import { config } from './config';
 import { cleanupOldFiles } from './utils/storage';
 import logger from './utils/logger';
 
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
+
 // Create Express application
 const app: Express = express();
 
@@ -69,7 +77,12 @@ app.use((_req, res, next) => {
 
 // Middleware configuration
 // - JSON body parser with size limit
-app.use(express.json({ limit: config.jsonLimit }));
+app.use(express.json({
+  limit: config.jsonLimit,
+  verify: (req, _res, buffer) => {
+    (req as Request).rawBody = Buffer.from(buffer);
+  },
+}));
 // - URL-encoded body parser
 app.use(express.urlencoded({ extended: true, limit: config.jsonLimit }));
 // - Static files for test UI

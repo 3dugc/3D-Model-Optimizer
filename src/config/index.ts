@@ -114,6 +114,16 @@ export interface BillingConfig {
   defaultJobPriceCents: number;
   rechargePackagesCents: number[];
   wechatNotifyUrl?: string;
+  wechatAppId?: string;
+  wechatMchId?: string;
+  wechatPrivateKey?: string;
+  wechatPrivateKeyPath?: string;
+  wechatCertSerialNo?: string;
+  wechatApiV3Key?: string;
+  wechatPlatformPublicKeyPath?: string;
+  wechatPlatformCertificatePath?: string;
+  wechatApiBaseUrl: string;
+  wechatSupportFapiao: boolean;
 }
 
 /**
@@ -293,6 +303,16 @@ export const config: ServerConfig = {
     defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 100),
     rechargePackagesCents: parsePositiveNumberCsv(process.env.RECHARGE_PACKAGES_CENTS, [1000, 3000, 5000, 10000]),
     wechatNotifyUrl: process.env.WECHAT_PAY_NOTIFY_URL,
+    wechatAppId: process.env.WECHAT_PAY_APP_ID,
+    wechatMchId: process.env.WECHAT_PAY_MCH_ID,
+    wechatPrivateKey: process.env.WECHAT_PAY_PRIVATE_KEY,
+    wechatPrivateKeyPath: process.env.WECHAT_PAY_PRIVATE_KEY_PATH,
+    wechatCertSerialNo: process.env.WECHAT_PAY_CERT_SERIAL_NO,
+    wechatApiV3Key: process.env.WECHAT_PAY_API_V3_KEY,
+    wechatPlatformPublicKeyPath: process.env.WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH,
+    wechatPlatformCertificatePath: process.env.WECHAT_PAY_PLATFORM_CERT_PATH,
+    wechatApiBaseUrl: process.env.WECHAT_PAY_API_BASE_URL || 'https://api.mch.weixin.qq.com',
+    wechatSupportFapiao: parseBoolean(process.env.WECHAT_PAY_SUPPORT_FAPIAO, false),
   },
 
   // Web user auth settings
