@@ -82,6 +82,16 @@
   - [x] 9.7 实现 Spot CVM scaling backend 或伸缩组对接
   - _Requirements: 3.1-3.6, 5.1-5.6_
 
+- [x] 9A. 接入 `3dugc.com` 站点域名
+  - [x] 9A.1 确认 `3dugc.com` 已在腾讯云 DNSPod 管理
+  - [x] 9A.2 在 DNSPod 创建或修改 `3dugc.com` 解析，指向 `port.7dgame.com`
+  - [x] 9A.3 评估并决定是否同时接入 `www.3dugc.com`
+  - [x] 9A.4 更新 Portainer / Traefik Host 规则，允许 `3dugc.com` 访问入口服务
+  - [x] 9A.5 配置 `3dugc.com` HTTPS 证书签发或自动签发
+  - [x] 9A.6 验证 `https://3dugc.com/health` 和异步 API 可访问
+  - [x] 9A.7 将 DNS、入口规则和验证结果写入 runbook
+  - _Requirements: 10.1-10.5_
+
 - [ ] 10. 接入微信 Native 支付
   - [ ] 10.1 定义 PaymentProvider 接口
   - [ ] 10.2 实现 Wechat Native 下单

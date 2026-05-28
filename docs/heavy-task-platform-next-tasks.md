@@ -48,7 +48,23 @@
 - [x] 添加异步任务 API 测试。
 - [x] 验证未注册 `taskType` 会被拒绝。
 - [x] 验证 `GET /api/v1/jobs/:jobId/result-url` 返回短期下载链接。
-  - 备注：代码和本地自动化测试已完成；线上部署验证需要先恢复 Portainer Stack 的 `DATABASE_URL`。
+  - 备注：代码和本地自动化测试已完成；2026-05-28 域名接入时已恢复 Portainer Stack 的 `DATABASE_URL`，入口 API 已恢复 healthy。
+
+## P1 站点域名接入
+
+- [x] 确认 `3dugc.com` 已在腾讯云 DNSPod 管理。
+- [x] 在腾讯云 DNSPod 为 `3dugc.com` 创建或修改解析，指向现有入口 `port.7dgame.com`。
+  - 优先方案：`@` 记录使用 CNAME 指向 `port.7dgame.com`。
+  - 如果根域 CNAME 受限，则改用腾讯云支持的等效方案，并在文档记录。
+  - 结果：根域 `@` 使用 A 记录指向 `175.27.169.6`，与 `port.7dgame.com` 当前入口 IP 一致。
+- [x] 评估是否同时接入 `www.3dugc.com`。
+  - 结果：通配符 `*` A 记录指向 `175.27.169.6`，覆盖 `www.3dugc.com`。
+- [x] 更新 Portainer / Traefik 入口规则，允许 `Host(3dugc.com)` 访问 `model-optimizer` 服务。
+- [x] 为 `3dugc.com` 配置 HTTPS 证书签发或自动签发。
+- [x] 验证 `https://3dugc.com/health` 返回健康状态。
+- [x] 验证 `https://3dugc.com/api-docs` 或异步 API 可访问。
+- [x] 将最终 DNS 记录、Traefik 规则和验证结果写入 runbook。
+  - 结果：2026-05-28 已完成，入口 Stack 已恢复 `DATABASE_URL` 环境变量并强制重拉 `latest` 镜像到 revision `6c60ac5`。
 
 ## P1 微信支付
 

@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-  Client["Web / 外部系统"] --> API["入口 API: optimizer.7dgame.com"]
+  Client["Web / 外部系统"] --> API["入口 API: optimizer.7dgame.com / 3dugc.com"]
   API --> DB["TDSQL-C MySQL"]
   API --> COS["COS: model-optimizer-1251022382"]
   API --> Queue["TDMQ/CMQ: optimizer-jobs"]
@@ -31,6 +31,7 @@ flowchart LR
 | 类型 | 名称 / 地址 | 用途 | 状态 |
 |---|---|---|---|
 | 入口域名 | `https://optimizer.7dgame.com` | Control API 对外入口 | 已部署，可访问 |
+| 站点域名 | `https://3dugc.com` / `https://www.3dugc.com` | 站点和 API 入口别名 | 已接入，可访问 |
 | Portainer | `https://port.7dgame.com` | Docker Stack 管理 | 已部署 |
 | COS bucket | `model-optimizer-1251022382` | 输入、输出、报告统一存储 | 已创建 |
 | COS 地域 | `ap-nanjing` | 南京地域 | 已确认 |
@@ -662,6 +663,49 @@ COS_UPLOAD_STS_ROLE_ARN=<upload-role-arn>
 COS_UPLOAD_CREDENTIAL_TTL_SECONDS=1800
 COS_DOWNLOAD_URL_TTL_SECONDS=900
 ```
+
+## 站点域名接入
+
+`3dugc.com` 已作为模型优化服务的站点域名接入同一个入口 Stack。
+
+### 2026-05-28 接入记录
+
+DNSPod 记录：
+
+```text
+3dugc.com.      A 175.27.169.6
+*.3dugc.com.    A 175.27.169.6
+```
+
+说明：
+
+- `175.27.169.6` 是 `port.7dgame.com` 和 `optimizer.7dgame.com` 当前入口 IP。
+- 根域未使用 CNAME，避免根域 CNAME 兼容性问题；改用同 IP 的 A 记录。
+- 通配符记录覆盖 `www.3dugc.com`，当前也已验证。
+
+Portainer Stack `model-optimizer` 的 Traefik 入口规则：
+
+```yaml
+- "traefik.http.routers.optimizer-api.rule=Host(`optimizer.7dgame.com`) || Host(`3dugc.com`) || Host(`www.3dugc.com`)"
+```
+
+验证结果：
+
+```text
+https://optimizer.7dgame.com/health -> 200 {"status":"ok",...}
+https://3dugc.com/health -> 200 {"status":"ok",...}
+https://www.3dugc.com/health -> 200 {"status":"ok",...}
+https://3dugc.com/api-docs -> 301 -> 200
+```
+
+本次接入过程中，Portainer Stack 曾因缺少 `DATABASE_URL` 导致 `optimizer-api` 重启并由 Traefik 返回 404。已在腾讯云 TDSQL-C 重置 `async_task_runtime@%` 密码，并将新的连接串只写入 Portainer Stack 环境变量，不写入仓库、镜像或文档。
+
+如果以后再次出现 `optimizer.7dgame.com` 和站点域名同时 404，优先排查：
+
+1. Portainer Stack `model-optimizer` 的 `DATABASE_URL` 环境变量是否还存在。
+2. `optimizer-api` 容器是否 healthy。
+3. Traefik label 是否包含目标 Host。
+4. 本地 Docker 是否缓存了旧 `latest`。若 CI 已推送新镜像但入口仍运行旧 revision，可以先删除入口机本地旧 `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest` tag，再重新更新 Stack，强制拉取新镜像。
 
 ### COS-only manifest
 

@@ -38,7 +38,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
-      - traefik.http.routers.optimizer-api.rule=Host(`${OPTIMIZER_HOST:-optimizer.7dgame.com}`)
+      - "traefik.http.routers.optimizer-api.rule=Host(`${OPTIMIZER_HOST:-optimizer.7dgame.com}`) || Host(`${OPTIMIZER_SITE_HOST:-3dugc.com}`) || Host(`${OPTIMIZER_SITE_WWW_HOST:-www.3dugc.com}`)"
       - traefik.http.routers.optimizer-api.entrypoints=websecure
       - traefik.http.routers.optimizer-api.tls=true
       - traefik.http.routers.optimizer-api.tls.certresolver=letsencrypt
