@@ -1,6 +1,7 @@
 services:
   optimizer-api:
     image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
     networks:
       - proxy
     environment:
@@ -71,6 +72,7 @@ services:
 
   optimizer-dispatcher:
     image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
     command: node dist/dispatcher/run-dispatcher.js
     networks:
       - proxy
@@ -94,6 +96,7 @@ services:
 
   optimizer-monitor:
     image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
     command: node dist/monitor/run-monitor.js
     networks:
       - proxy
