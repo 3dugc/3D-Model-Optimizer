@@ -99,6 +99,9 @@
           <h6><i class="bi bi-person-circle"></i> 账户与充值</h6>
           <div id="accountLoggedOut">
             <p class="text-muted small mb-2" id="wechatLoginHint">微信登录能力待配置。</p>
+            <button class="btn btn-sm btn-success w-100 hidden mb-2" id="wechatOAuthLoginBtn">
+              <i class="bi bi-wechat me-1"></i>微信登录
+            </button>
             <button class="btn btn-sm btn-outline-success w-100" id="mockWechatLoginBtn">
               <i class="bi bi-wechat me-1"></i>开发模拟微信登录
             </button>
@@ -252,6 +255,8 @@
     let webToken = localStorage.getItem('web_token') || '';
     let rechargePackagesCents = [1000, 3000, 5000, 10000];
     let mockWechatLoginEnabled = false;
+    let wechatOAuthConfigured = false;
+    let wechatOAuthMode = 'offiaccount';
     let nativePaymentConfigured = false;
     let rechargePollTimer = null;
     let wireframeMode = false, viewMode = 'split';
@@ -286,6 +291,36 @@
     function getAuthHeaders() { return apiKey ? { 'x-api-key': apiKey } : {}; }
     function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
     function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
+    function consumeWebTokenFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      const hashParams = window.location.hash.startsWith('#')
+        ? new URLSearchParams(window.location.hash.slice(1))
+        : new URLSearchParams();
+      const token = params.get('web_token') || hashParams.get('web_token');
+      const loginError = params.get('login_error') || hashParams.get('login_error');
+      if (token) {
+        webToken = token;
+        localStorage.setItem('web_token', webToken);
+      }
+      if (loginError) {
+        showError(`微信登录失败：${loginError}`);
+      }
+      if (token || loginError || params.get('login') || hashParams.get('login')) {
+        params.delete('web_token');
+        params.delete('login');
+        params.delete('login_error');
+        hashParams.delete('web_token');
+        hashParams.delete('login');
+        hashParams.delete('login_error');
+        const nextSearch = params.toString();
+        const nextHash = hashParams.toString();
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${nextHash ? `#${nextHash}` : ''}`
+        );
+      }
+    }
 
     async function loadAccountProviders() {
       try {
@@ -293,11 +328,16 @@
         const data = await res.json();
         rechargePackagesCents = data.rechargePackagesCents || rechargePackagesCents;
         mockWechatLoginEnabled = !!data.wechat?.mockLoginEnabled;
+        wechatOAuthConfigured = !!data.wechat?.oauthConfigured;
+        wechatOAuthMode = data.wechat?.oauthMode || 'offiaccount';
         nativePaymentConfigured = !!data.wechat?.nativePaymentConfigured;
+        document.getElementById('wechatOAuthLoginBtn').classList.toggle('hidden', !wechatOAuthConfigured);
         document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
-        document.getElementById('wechatLoginHint').textContent = mockWechatLoginEnabled
-          ? '当前为开发模拟登录，生产环境需要微信开放平台授权。'
-          : '生产登录需要配置微信开放平台网站应用和公众号网页授权。';
+        document.getElementById('wechatLoginHint').textContent = wechatOAuthConfigured
+          ? (wechatOAuthMode === 'website' ? '使用微信扫码登录后余额会绑定到同一微信账户。' : '使用微信授权登录后余额会绑定到同一微信账户。')
+          : (mockWechatLoginEnabled
+            ? '当前为开发模拟登录，生产环境需要配置微信 OAuth。'
+            : '生产登录需要配置公众号网页授权或微信开放平台网站应用。');
         renderRechargeButtons();
       } catch (error) {
         console.warn('Account provider metadata unavailable:', error);
@@ -483,11 +523,16 @@
         showError(error.message);
       }
     });
+    document.getElementById('wechatOAuthLoginBtn').addEventListener('click', () => {
+      const returnTo = `${window.location.pathname}${window.location.search}`;
+      window.location.href = `/api/v1/account/auth/wechat/authorize?returnTo=${encodeURIComponent(returnTo || '/')}`;
+    });
     document.getElementById('logoutWebUserBtn').addEventListener('click', () => {
       webToken = '';
       localStorage.removeItem('web_token');
       refreshAccount();
     });
+    consumeWebTokenFromUrl();
     loadAccountProviders().then(refreshAccount);
 
     // ===== Three.js =====

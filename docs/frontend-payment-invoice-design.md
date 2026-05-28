@@ -125,9 +125,9 @@ stateDiagram-v2
 
 ```text
 GET  /api/v1/account/auth/providers
+GET  /api/v1/account/auth/wechat/authorize
+GET  /api/v1/account/auth/wechat/callback
 POST /api/v1/account/auth/wechat/mock-login
-POST /api/v1/auth/wechat/qr-login
-GET  /api/v1/auth/wechat/callback
 POST /api/v1/auth/logout
 GET  /api/v1/account/me
 ```
@@ -156,11 +156,12 @@ GET  /api/v1/jobs/:jobId
 当前落地状态：
 
 - 已实现账户、钱包、充值订单、余额流水和任务冻结/扣费后端。
-- 已实现本地开发用的模拟微信登录和模拟支付入账。
+- 已实现微信 OAuth 登录代码，支持公众号网页授权和开放平台网站扫码两种模式；回调会保存 `openid`，有 `unionid` 时同步保存，便于后续小程序共享账户。
+- 已保留本地开发用的模拟微信登录和模拟支付入账。
 - 已实现微信支付 Native provider、API v3 请求签名、支付通知验签和 `resource` 解密。
 - 已在现有 Web UI 增加账户、余额和充值面板。
 - 已实现 Worker 成功完成后扣费、最终系统失败后释放冻结余额。
-- 生产微信登录、真实二维码渲染和发票自动化仍需要微信平台凭证。
+- 生产微信登录仍需要在 Portainer 配置公众号或开放平台 AppSecret，并在微信平台配置 `3dugc.com` 授权域名；发票自动化仍需要微信平台或第三方发票能力。
 
 发票：
 

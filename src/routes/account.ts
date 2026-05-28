@@ -4,6 +4,15 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { accountService } from '../accounts/account-service';
 import { verifyWebUserToken } from '../accounts/token';
+import {
+  buildWechatOAuthAuthorizeUrl,
+  createWechatOAuthState,
+  exchangeWechatOAuthCode,
+  getWechatOAuthRuntimeConfig,
+  isWechatOAuthConfigured,
+  normalizeWechatOAuthReturnTo,
+  verifyWechatOAuthState,
+} from '../accounts/wechat-oauth';
 import type { CreatePaidWebJobInput } from '../accounts/types';
 import { HttpError } from '../utils/http-error';
 
@@ -65,28 +74,104 @@ function requireWebUserId(req: Request): string {
   return req.webUserId;
 }
 
+function buildRelativeRedirectUrl(returnTo: string, params: Record<string, string>): string {
+  const url = new URL(normalizeWechatOAuthReturnTo(returnTo), 'https://3dugc.com');
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
 router.get('/auth/providers', (_req: Request, res: Response) => {
+  const wechatPaymentConfigured = Boolean(
+    config.billing.wechatAppId &&
+      config.billing.wechatMchId &&
+      (config.billing.wechatPrivateKey || config.billing.wechatPrivateKeyPath) &&
+      config.billing.wechatCertSerialNo &&
+      config.billing.wechatApiV3Key &&
+      (config.billing.wechatPlatformPublicKey ||
+        config.billing.wechatPlatformPublicKeyPath ||
+        config.billing.wechatPlatformCertificate ||
+        config.billing.wechatPlatformCertificatePath)
+  );
   res.json({
     wechat: {
       mockLoginEnabled: config.webAuth.mockLoginEnabled,
-      productionLoginConfigured: Boolean(
-        config.billing.wechatAppId &&
-          config.billing.wechatMchId &&
-          (config.billing.wechatPrivateKey || config.billing.wechatPrivateKeyPath) &&
-          config.billing.wechatCertSerialNo &&
-          config.billing.wechatApiV3Key &&
-          (config.billing.wechatPlatformPublicKeyPath || config.billing.wechatPlatformCertificatePath)
-      ),
+      oauthConfigured: isWechatOAuthConfigured(),
+      oauthMode: config.webAuth.wechatOAuthMode,
+      oauthAppIdConfigured: Boolean(config.webAuth.wechatOAuthAppId),
+      oauthAppSecretConfigured: Boolean(config.webAuth.wechatOAuthAppSecret),
+      oauthRedirectUrlConfigured: Boolean(config.webAuth.wechatOAuthRedirectUrl),
+      productionLoginConfigured: isWechatOAuthConfigured(),
       nativePaymentConfigured: config.billing.mode === 'wechat_native',
+      wechatPaymentConfigured,
+      unionIdSupported: true,
       requiredBeforeProduction: [
-        '微信开放平台网站应用 AppID / AppSecret',
-        '公众号网页授权 AppID / AppSecret（微信内浏览器）',
+        '公众号网页授权 AppID / AppSecret（微信内浏览器）或微信开放平台网站应用 AppID / AppSecret（桌面扫码）',
         'OAuth 回调域名：3dugc.com',
+        'OAuth 回调地址：https://3dugc.com/api/v1/account/auth/wechat/callback',
       ],
     },
     rechargePackagesCents: config.billing.rechargePackagesCents,
     jobPriceCents: config.billing.defaultJobPriceCents,
   });
+});
+
+router.get('/auth/wechat/authorize', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const runtimeConfig = getWechatOAuthRuntimeConfig();
+    if (!runtimeConfig) {
+      throw new HttpError(503, 'WECHAT_OAUTH_NOT_CONFIGURED', 'WeChat OAuth is not configured.');
+    }
+    const returnTo = typeof req.query.returnTo === 'string' ? req.query.returnTo : '/';
+    const state = createWechatOAuthState(returnTo);
+    res.redirect(302, buildWechatOAuthAuthorizeUrl(runtimeConfig, state));
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/auth/wechat/callback', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const state = verifyWechatOAuthState(typeof req.query.state === 'string' ? req.query.state : undefined);
+    if (!state) {
+      throw new HttpError(400, 'WECHAT_OAUTH_STATE_INVALID', 'WeChat OAuth state is invalid or expired.');
+    }
+
+    const errorCode = typeof req.query.errcode === 'string' ? req.query.errcode : undefined;
+    if (errorCode) {
+      res.redirect(
+        302,
+        buildRelativeRedirectUrl(state.returnTo, {
+          login: 'failed',
+          login_error: errorCode,
+        })
+      );
+      return;
+    }
+
+    const code = typeof req.query.code === 'string' ? req.query.code : undefined;
+    if (!code) {
+      throw new HttpError(400, 'WECHAT_OAUTH_CODE_REQUIRED', 'WeChat OAuth code is required.');
+    }
+
+    const profile = await exchangeWechatOAuthCode(code);
+    const login = await accountService.loginWithWechat({
+      openId: profile.openId,
+      unionId: profile.unionId,
+      nickname: profile.nickname || '微信用户',
+      avatarUrl: profile.avatarUrl,
+    });
+    res.redirect(
+      302,
+      buildRelativeRedirectUrl(state.returnTo, {
+        web_token: login.token,
+        login: 'success',
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.post('/auth/wechat/mock-login', async (req: Request, res: Response, next: NextFunction) => {
