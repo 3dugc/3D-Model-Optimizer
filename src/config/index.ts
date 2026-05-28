@@ -90,6 +90,12 @@ export interface CloudRuntimeConfig {
   dispatcherSlotsPerInstance: number;
   dispatcherMinInstances: number;
   dispatcherMaxInstances: number;
+  monitorIntervalSeconds: number;
+  monitorQueueBacklogThreshold: number;
+  monitorWorkerHeartbeatStaleSeconds: number;
+  monitorAlarmCooldownSeconds: number;
+  monitorTencentCustomAlarmEnabled: boolean;
+  monitorAlarmTitlePrefix: string;
 }
 
 /**
@@ -229,6 +235,12 @@ export const config: ServerConfig = {
     dispatcherSlotsPerInstance: parsePositiveNumber(process.env.DISPATCHER_SLOTS_PER_INSTANCE, 1),
     dispatcherMinInstances: Math.max(0, parseNumber(process.env.DISPATCHER_MIN_INSTANCES, 0)),
     dispatcherMaxInstances: Math.max(0, parseNumber(process.env.DISPATCHER_MAX_INSTANCES, 3)),
+    monitorIntervalSeconds: parsePositiveNumber(process.env.MONITOR_INTERVAL_SECONDS, 60),
+    monitorQueueBacklogThreshold: Math.max(1, parseNumber(process.env.MONITOR_QUEUE_BACKLOG_THRESHOLD, 1)),
+    monitorWorkerHeartbeatStaleSeconds: parsePositiveNumber(process.env.MONITOR_WORKER_HEARTBEAT_STALE_SECONDS, 180),
+    monitorAlarmCooldownSeconds: parsePositiveNumber(process.env.MONITOR_ALARM_COOLDOWN_SECONDS, 900),
+    monitorTencentCustomAlarmEnabled: parseBoolean(process.env.MONITOR_TENCENT_CUSTOM_ALARM_ENABLED, false),
+    monitorAlarmTitlePrefix: process.env.MONITOR_ALARM_TITLE_PREFIX || 'model-optimizer',
   },
 
   // Shared state store

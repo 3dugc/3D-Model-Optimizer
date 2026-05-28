@@ -9,6 +9,8 @@
     "dev": "ts-node --files src/index.ts",
     "dispatcher": "ts-node --files src/dispatcher/run-dispatcher.ts",
     "dispatcher:prod": "node dist/dispatcher/run-dispatcher.js",
+    "monitor": "ts-node --files src/monitor/run-monitor.ts",
+    "monitor:prod": "node dist/monitor/run-monitor.js",
     "worker": "ts-node --files src/worker/run-worker.ts",
     "worker:prod": "node dist/worker/run-worker.js",
     "test": "vitest run",

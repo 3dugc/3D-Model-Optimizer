@@ -203,13 +203,13 @@ CALLBACK_MAX_ATTEMPTS=6
 ## 9. 监控告警
 
 - [x] 盘点现有云监控策略：TDSQL-C `policy-uh3ag0g2` 已有系统通知模板；CVM 基础监控 `policy-u79zubvx` 已覆盖磁盘只读和 `ping` 不可达，但通知模板未配置。
-- [ ] 为 CVM 基础监控策略 `policy-u79zubvx` 绑定通知模板，确保告警能发到接收人。
-- [ ] 为 `model-optimizer-1251022382` 创建 COS 上传/下载错误或流量异常告警。
-- [ ] 队列可见消息数告警。
+- [x] 为 CVM 基础监控策略 `policy-u79zubvx` 绑定通知模板，确保告警能发到接收人。
+- [x] 为 `model-optimizer-1251022382` 创建 COS 上传/下载错误或流量异常告警：`policy-5cncpgxg`。
+- [x] 队列可见消息数告警：由 `optimizer-monitor` 读取 CMQ `GetQueueAttributes` 和数据库 backlog 触发业务告警。
 - [ ] 按 task type 统计队列积压、失败率和平均处理时长。
-- [ ] Worker heartbeat 丢失告警。
+- [x] Worker heartbeat 丢失告警：当处理中的 Job 绑定到 stale Worker 或租约过期时触发业务告警。
 - [ ] Job 失败率告警。
 - [ ] Callback 失败率告警。
 - [ ] 微信支付回调失败告警。
-- [ ] COS 上传或下载错误告警。
+- [x] COS 上传或下载错误告警。
 - [ ] 单日成本或实例数异常告警。

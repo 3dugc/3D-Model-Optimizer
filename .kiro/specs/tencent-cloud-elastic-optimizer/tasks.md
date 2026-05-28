@@ -171,12 +171,15 @@
   - [x] 15.16d 用 `latest1` SA9 兜底 Worker `ins-c72wkhws` 跑通真实 smoke test `682a51b8-67c9-429d-9815-7dbb6d09b4e2`，测试后缩回 `0/0`
   - [x] 15.16e 实现 `optimizer-dispatcher` 进程和 Portainer Compose 模板，可按 Job backlog 调整 AS desired capacity
   - [x] 15.16f 将 `optimizer-dispatcher` 部署到 Portainer，并用真实队列验证自动扩容到 `1`、任务完成后缩回 `0`：`jobId=0c7928e0-e155-46ba-a7c7-96405e9ce893`，`workerId=worker-cvm-ins-3fv5utu4`
-  - [ ] 15.17 将永久密钥从镜像内配置迁移到角色、用户数据或密钥管理
+  - [x] 15.17 将永久密钥从镜像内配置迁移到运行时 CAM 角色；停用旧 `modeloptimizer` API key，未创建新 key
   - [x] 15.18a 准备 Dispatcher AS 最小权限策略文件 `infra/tencent-cloud/cam/model-optimizer-dispatcher-as-policy.json`
   - [x] 15.18b 在 CAM 绑定最小权限策略，验证后移除临时 `QcloudASFullAccess`：`jobId=5dd794c5-83eb-4870-8182-c365b5855cdb`，`workerId=worker-cvm-ins-m6q6mezk`
   - [x] 15.19 将 CAM 子账号临时 `QcloudTATFullAccess` 移除，运行时账号仅保留 AS 最小权限和 runtime 策略
-  - [ ] 15.20 最终确认后释放 Worker 基准机 `ins-big9dirk`
+  - [x] 15.20 最终确认后释放 Worker 基准机 `ins-big9dirk`
   - [x] 15.21 完成真实强杀 Worker 恢复演练，并在演练后将 `asg-pj6qaput` 缩回 `0/0`：`jobId=41e5772e-10e1-4e02-9fe9-5297f32f8bcc`
+  - [x] 15.22 创建 COS 告警策略 `model-optimizer-cos-errors-traffic` / `policy-5cncpgxg`
+  - [x] 15.23 新增 `optimizer-monitor` 业务监控进程，覆盖队列积压、无 Worker 心跳和处理中 Worker 失联
+  - [x] 15.24 创建并绑定运行时监控最小权限策略 `model-optimizer-monitor-alarm-minimal`，解除临时 `QcloudMonitorFullAccess`
   - _Requirements: 3.1-3.6, 4.1-4.6, 5.1-5.6, 10.3_
 
 ## Notes

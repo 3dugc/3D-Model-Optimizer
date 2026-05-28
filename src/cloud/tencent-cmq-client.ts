@@ -26,9 +26,20 @@ interface TencentCmqResponse {
   msgBody?: string;
   msgId?: string;
   receiptHandle?: string;
+  activeMsgNum?: number;
+  inactiveMsgNum?: number;
+  delayMsgNum?: number;
+  msgCount?: number;
 }
 
-type TencentCmqAction = 'SendMessage' | 'ReceiveMessage' | 'DeleteMessage';
+export interface TencentCmqQueueAttributes {
+  activeMsgNum: number;
+  inactiveMsgNum: number;
+  delayMsgNum: number;
+  msgCount: number;
+}
+
+type TencentCmqAction = 'SendMessage' | 'ReceiveMessage' | 'DeleteMessage' | 'GetQueueAttributes';
 
 function normalizeEndpoint(endpoint: string): URL {
   const url = new URL(endpoint.includes('://') ? endpoint : `https://${endpoint}`);
@@ -91,6 +102,18 @@ export class TencentCmqClient {
       queueName: this.options.queueName,
       receiptHandle,
     });
+  }
+
+  async getQueueAttributes(): Promise<TencentCmqQueueAttributes> {
+    const response = await this.request('GetQueueAttributes', {
+      queueName: this.options.queueName,
+    });
+    return {
+      activeMsgNum: response.activeMsgNum ?? 0,
+      inactiveMsgNum: response.inactiveMsgNum ?? 0,
+      delayMsgNum: response.delayMsgNum ?? 0,
+      msgCount: response.msgCount ?? 0,
+    };
   }
 
   private async request(action: TencentCmqAction, actionParams: Record<string, string>): Promise<TencentCmqResponse> {

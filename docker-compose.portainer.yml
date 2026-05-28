@@ -75,6 +75,30 @@ services:
       DISPATCHER_DRY_RUN: ${DISPATCHER_DRY_RUN:-false}
     restart: unless-stopped
 
+  optimizer-monitor:
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    command: node dist/monitor/run-monitor.js
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      CLOUD_PROVIDER: tencent
+      QUEUE_PROVIDER: tdmq-cmq
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      TENCENT_REGION: ap-nanjing
+      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-https://cmq-nj.public.tencenttdmq.com}
+      QUEUE_NAME: ${QUEUE_NAME:-optimizer-jobs}
+      MONITOR_INTERVAL_SECONDS: ${MONITOR_INTERVAL_SECONDS:-60}
+      MONITOR_QUEUE_BACKLOG_THRESHOLD: ${MONITOR_QUEUE_BACKLOG_THRESHOLD:-1}
+      MONITOR_WORKER_HEARTBEAT_STALE_SECONDS: ${MONITOR_WORKER_HEARTBEAT_STALE_SECONDS:-180}
+      MONITOR_ALARM_COOLDOWN_SECONDS: ${MONITOR_ALARM_COOLDOWN_SECONDS:-900}
+      MONITOR_TENCENT_CUSTOM_ALARM_ENABLED: ${MONITOR_TENCENT_CUSTOM_ALARM_ENABLED:-true}
+      MONITOR_ALARM_TITLE_PREFIX: ${MONITOR_ALARM_TITLE_PREFIX:-model-optimizer}
+    restart: unless-stopped
+
 volumes:
   optimizer-data:
   optimizer-temp:

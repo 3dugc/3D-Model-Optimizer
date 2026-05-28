@@ -15,6 +15,7 @@
 - 共享状态库使用 TDSQL-C MySQL 集群 `cynosdbmysql-o6c4ezij`，schema 为 `async_task_platform`。
 - 弹性 Worker 使用腾讯云 AS 伸缩组，当前 Dispatcher 只控制 SA9 兜底组 `asg-pj6qaput`。
 - `optimizer-dispatcher` 已部署到 Portainer，会按数据库中的 Job backlog 自动调整 AS desired capacity。
+- `optimizer-monitor` 已加入 Portainer Compose 模板，用于队列积压、Worker heartbeat 和租约异常的业务告警。
 - 运行时 CAM 子账号 `modeloptimizer` 已移除临时 `QcloudASFullAccess` 和 `QcloudTATFullAccess`，只保留 AS 最小权限和 COS/CMQ runtime 策略。
 - 入口 CVM 和 Worker AS 启动配置已绑定运行时 CAM 角色 `model-optimizer-runtime-role`；Portainer Stack 不再向容器注入腾讯永久密钥。
 - 已完成多次真实 smoke test，验证链路为：提交任务、Dispatcher 自动扩容、Worker 处理、COS 写回、状态更新、Dispatcher 缩容。
@@ -23,7 +24,7 @@
 
 待落地：
 
-- 最终确认后停用旧 `modeloptimizer` 永久 API key，不创建新的 key。
+- 继续完善 P1 外部接入、微信 Native 支付和失败率/成本类告警。
 - 接入微信 Native 支付和外部客户回调密钥管理。
 - 给外部系统开放 COS-only manifest 接入或正式 STS 直传接入。
 
@@ -60,7 +61,7 @@ flowchart LR
 | 类别 | 当前资源 | 用途 |
 |---|---|---|
 | 入口域名 | `https://optimizer.7dgame.com` | Control API |
-| Portainer Stack | `model-optimizer` | 部署 `optimizer-api` 和 `optimizer-dispatcher` |
+| Portainer Stack | `model-optimizer` | 部署 `optimizer-api`、`optimizer-dispatcher` 和 `optimizer-monitor` |
 | 镜像仓库 | `hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest` | API、Dispatcher、Worker 共用镜像 |
 | COS | `model-optimizer-1251022382` | 输入模型、输出模型、报告文件 |
 | CMQ | `optimizer-jobs` | 任务队列 |
@@ -73,6 +74,17 @@ flowchart LR
 | CAM 角色 | `model-optimizer-runtime-role` | 入口 CVM 和弹性 Worker 实例角色 |
 | AS 最小权限策略 | `model-optimizer-dispatcher-as-minimal` | 只允许查询和修改 `asg-pj6qaput` desired capacity |
 | Runtime 权限策略 | `model-optimizer-runtime-policy` | COS/CMQ 运行时访问 |
+| Monitor 最小权限策略 | `model-optimizer-monitor-alarm-minimal` | 只允许运行时发送自定义告警消息 |
+
+## 监控告警
+
+已落地三层告警：
+
+1. 云产品基础告警：CVM 基础监控策略 `policy-u79zubvx` 已绑定通知模板。
+2. COS 告警：`model-optimizer-cos-errors-traffic` / `policy-5cncpgxg` 监控 `model-optimizer-1251022382` 的 4xx、5xx 和流量异常。
+3. 业务告警：`optimizer-monitor` 周期性读取 CMQ 属性、TDSQL-C Job backlog 和 Worker heartbeat。触发条件包括队列积压、有 backlog 但没有新鲜 Worker heartbeat、处理中任务绑定到 stale Worker 或租约过期。
+
+业务告警使用运行时角色 `model-optimizer-runtime-role`，通过自定义策略 `model-optimizer-monitor-alarm-minimal` 授权 `monitor:SendCustomAlarmMsg`。创建告警策略时临时绑定过 `QcloudMonitorFullAccess`，创建完成后已解除。
 
 ## 代码边界
 

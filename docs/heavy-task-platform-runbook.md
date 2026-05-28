@@ -61,13 +61,18 @@ flowchart LR
 | CLS 日志集 | `model-optimizer` / `c4090ece-08de-4825-b658-9e3d21b58108` | 运行日志集中管理 | 已创建 |
 | CLS 日志主题 | `model-optimizer-runtime` / `18967734-2ca0-40ea-a1c2-73e5b0e97acc` | API、Dispatcher、Worker 运行日志 | 已创建，30 天标准存储 |
 | CLS 免费资源包 | `CLS预付费包` `10U` `3个月` | 新手体验资源包 | 已领取，订单实付 `0.00` |
+| COS 告警策略 | `model-optimizer-cos-errors-traffic` / `policy-5cncpgxg` | COS 错误和流量异常 | 已创建 |
+| 业务监控进程 | `optimizer-monitor` | 队列积压和 Worker heartbeat 告警 | 已加入 Compose 模板 |
+| 监控最小权限策略 | `model-optimizer-monitor-alarm-minimal` / `274447300` | 只允许发送自定义告警消息 | 已绑定运行时角色 |
 
 ## 入口服务部署约定
 
-Portainer Stack `model-optimizer` 只应保留 API 服务：
+Portainer Stack `model-optimizer` 只运行入口控制面相关进程，不跑重任务 Worker：
 
 ```text
 optimizer-api
+optimizer-dispatcher
+optimizer-monitor
 ```
 
 入口服务职责：
@@ -80,6 +85,8 @@ optimizer-api
 - 查询任务状态和结果。
 - 微信支付下单和支付回调。
 - 客户回调管理。
+- 按 Job backlog 调整 AS desired capacity。
+- 发送队列积压和 Worker heartbeat 业务告警。
 
 入口服务不应处理大模型优化任务。若 Portainer Stack 中还有 `optimizer-worker`，应在完成 Worker 弹性池后永久移除，避免入口服务器被 CPU/内存任务拖住。
 
@@ -354,7 +361,40 @@ runtimeRoleSmokeReport=tenants/runtime-role-smoke/jobs/a8b2db54-4286-4a95-879d-4
 - Portainer Stack `model-optimizer` 已移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN` 环境变量，`https://optimizer.7dgame.com/health` 返回 `ok`。
 - 无永久腾讯密钥后提交真实任务 `a8b2db54-4286-4a95-879d-4d86721a5d25`，Dispatcher 将 `asg-pj6qaput` 从 `0` 扩到 `1`，Worker `worker-cvm-ins-jzr9cig4` 成功处理并写回 COS；完成后 `asg-pj6qaput` 自动缩回 `desired=0`、`inService=0`。
 - 为创建带角色的 AS 启动配置，曾临时把 `QcloudASFullAccess` 重新绑定到运行时子账号 `modeloptimizer`，初始化完成后已立即解除；当前用户权限列表只剩 `model-optimizer-dispatcher-as-minimal` 和 `model-optimizer-runtime-policy`。
-- 当前还没有为 `model-optimizer-1251022382` 创建专用 COS 告警，也没有业务级队列积压、Worker heartbeat 和 Job 失败率告警。
+- 2026-05-28 已停用旧 `modeloptimizer` 永久 API key，未创建新的运行时 API key。
+- 2026-05-28 已创建 COS 告警策略 `model-optimizer-cos-errors-traffic` / `policy-5cncpgxg`，覆盖 4xx、5xx 和入/出流量异常。
+- 2026-05-28 已新增业务监控进程 `optimizer-monitor`，覆盖队列积压、backlog 无新鲜 Worker heartbeat、处理中任务绑定到 stale Worker 或租约过期。
+- 2026-05-28 已创建并绑定 `model-optimizer-monitor-alarm-minimal`，只授权 `monitor:SendCustomAlarmMsg`；创建告警时临时绑定的 `QcloudMonitorFullAccess` 已解除。当前运行时角色保留 3 个自定义策略：`model-optimizer-runtime-policy`、`model-optimizer-dispatcher-as-minimal`、`model-optimizer-monitor-alarm-minimal`。
+
+## 监控告警落地记录
+
+```text
+cvmPolicy=policy-u79zubvx / bound to 系统预设通知模板
+cosPolicy=model-optimizer-cos-errors-traffic / policy-5cncpgxg
+cosBucket=model-optimizer-1251022382
+cosRules=4xxResponse>0, 5xxResponse>0, InternetTraffic>5000MB, InboundTraffic>5000MB
+businessMonitor=optimizer-monitor
+businessMonitorPolicy=model-optimizer-monitor-alarm-minimal / policyId=274447300
+businessMonitorPermission=monitor:SendCustomAlarmMsg
+temporaryMonitorFullAccess=QcloudMonitorFullAccess / removed after setup
+```
+
+`optimizer-monitor` 使用与 API/Dispatcher 相同的 Docker 镜像和运行时角色。它不会处理模型文件，只做只读巡检：
+
+- `CMQ GetQueueAttributes`：读取可见、不可见和延迟消息数。
+- `optimizer_jobs`：读取 `queued`、`retry_wait`、`processing` backlog 和租约状态。
+- `optimizer_workers`：读取最近 Worker heartbeat、slot 和 draining 状态。
+
+触发条件：
+
+- `queue-backlog-high`：CMQ 可见消息数 + DB pending jobs 达到阈值。
+- `backlog-without-fresh-workers`：存在 pending jobs，但没有新鲜 Worker slot。
+- `worker-heartbeat-lost`：处理中 Job 绑定到 stale Worker，或 processing 租约已过期。
+
+重要约束：
+
+- 空闲缩容到 `0` 不会单独触发 Worker heartbeat 丢失告警，避免正常弹性缩容误报。
+- 告警发送使用自定义告警消息；未触发业务异常时不会主动发送测试告警。
 
 已完成真实强杀 Worker 恢复验证：
 
@@ -580,7 +620,7 @@ TENCENT_TOKEN=                                 # 使用实例角色时由 metada
 5. [x] 从 Portainer Stack 环境变量移除 `TENCENT_SECRET_ID`、`TENCENT_SECRET_KEY`、`TENCENT_TOKEN`。
 6. [x] 重新部署入口 Stack，确认 `/health` 正常。
 7. [x] 提交真实任务，验证 API、CMQ、COS、Dispatcher AS 和 Worker 全链路都能使用实例角色临时凭证。
-8. [ ] 验证通过后，停用旧永久密钥；不要创建新的 `modeloptimizer` API key。
+8. [x] 验证通过后，停用旧永久密钥；不要创建新的 `modeloptimizer` API key。
 
 ## 新服务接入模板
 
