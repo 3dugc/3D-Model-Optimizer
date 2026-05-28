@@ -60,6 +60,7 @@ hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:latest
 NODE_ENV=production
 PORT=3000
 API_BASE_URL=https://optimizer.example.com
+API_KEYS=[{"name":"partner-a","key":"<secret>","tenantId":"tenant-a","taskTypes":["model.optimize"],"scopes":["jobs:create","jobs:read","jobs:complete","jobs:result","upload:grant","cos:events"]}]
 
 DATABASE_URL=mysql://user:password@mysql-host:3306/optimizer
 STATE_STORE_PROVIDER=mysql
@@ -75,6 +76,9 @@ TENCENT_TOKEN=
 COS_INPUT_BUCKET=model-optimizer-1251022382
 COS_OUTPUT_BUCKET=model-optimizer-1251022382
 COS_UPLOAD_CREDENTIAL_TTL_SECONDS=1800
+COS_DOWNLOAD_URL_TTL_SECONDS=900
+COS_UPLOAD_GRANT_MODE=signed-url
+COS_UPLOAD_STS_ROLE_ARN=
 
 QUEUE_PROVIDER=tdmq-cmq
 QUEUE_ENDPOINT=https://cmq-nj.public.tencenttdmq.com
@@ -183,12 +187,12 @@ CALLBACK_MAX_ATTEMPTS=6
 - [x] `POST /api/v1/jobs` 创建 `model.optimize` 任务并返回上传授权。
 - [x] Job 记录包含 `taskType`，队列消息也包含 `taskType`。
 - [x] `POST /api/v1/jobs` 使用真实 TDMQ/CMQ 入队 smoke test 通过，返回 `queued`。
-- [ ] 未注册 task type 会被拒绝。
-- [ ] 外部系统可用临时密钥上传模型到 COS。
-- [ ] COS 事件或 `complete-upload` 可触发入队。
+- [x] 未注册 task type 会被拒绝，并已有单元测试覆盖。
+- [x] 外部系统可通过上传授权把模型上传到 COS；默认返回短期单对象 `PUT` URL，配置 `COS_UPLOAD_GRANT_MODE=sts` 后可签发 STS 临时凭证。
+- [x] COS 事件、COS-only manifest 或 `complete-upload` 可触发入队；重复事件通过幂等键去重。
 - [x] Worker 可通过 `TDMQ/CMQ` 消费任务并写回 output bucket。
 - [x] `GET /api/v1/jobs/:jobId` 可查到 succeeded/failed。
-- [ ] `GET /api/v1/jobs/:jobId/result-url` 返回短期下载 URL。
+- [x] `GET /api/v1/jobs/:jobId/result-url` 返回短期下载 URL。
 - [ ] 客户回调带 HMAC 签名且可被客户系统验签。
 
 ## 8. 支付验收

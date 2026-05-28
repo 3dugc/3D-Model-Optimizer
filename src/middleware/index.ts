@@ -9,4 +9,5 @@
  */
 
 export { errorHandler, notFoundHandler } from './error-handler';
-export { authMiddleware, isAuthEnabled, getApiKey } from './auth';
+export { authMiddleware, isAuthEnabled, getApiKey, requireScope } from './auth';
+export type { ApiPrincipal } from './auth';

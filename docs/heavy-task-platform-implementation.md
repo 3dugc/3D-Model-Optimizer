@@ -24,9 +24,10 @@
 
 待落地：
 
-- 继续完善 P1 外部接入、微信 Native 支付和失败率/成本类告警。
+- P1 外部接入代码已具备：API Key scope、COS 上传授权、COS-only manifest、短期结果 URL 和幂等入队测试。
+- 继续完善微信 Native 支付和失败率/成本类告警。
 - 接入微信 Native 支付和外部客户回调密钥管理。
-- 给外部系统开放 COS-only manifest 接入或正式 STS 直传接入。
+- 生产如需真正 STS 直传，配置上传专用角色并设置 `COS_UPLOAD_GRANT_MODE=sts`；默认使用单对象短期 `PUT` URL。
 
 ## 目标架构
 

@@ -33,23 +33,23 @@
   - [x] 4.6 实现 MySQL/Postgres Job/Order 共享状态库
   - _Requirements: 1.1-1.5, 1A.1-1A.7, 8.1-8.6, 9.3, 9.4_
 
-- [ ] 5. 新增异步任务 API
+- [x] 5. 新增异步任务 API
   - [x] 5.1 实现 `POST /api/v1/jobs`
   - [x] 5.2 实现 `GET /api/v1/jobs/:jobId`
   - [x] 5.3 实现 `POST /api/v1/jobs/:jobId/complete-upload`
   - [x] 5.4 实现 `GET /api/v1/jobs/:jobId/result-url`
-  - [ ] 5.5 实现 API Key 鉴权和 scope 校验
-  - [ ] 5.6 添加 OpenAPI 文档和测试
+  - [x] 5.5 实现 API Key 鉴权和 scope 校验
+  - [x] 5.6 添加 OpenAPI 文档和测试
   - _Requirements: 1.1-1.5, 2.1, 6.6_
 
-- [ ] 6. 实现 COS 上传和事件处理
+- [x] 6. 实现 COS 上传和事件处理
   - [x] 6.1 定义 StorageProvider 接口
   - [x] 6.2 实现 LocalStorageProvider
   - [x] 6.3 实现 TencentCosStorageProvider
-  - [ ] 6.4 实现 COS 临时密钥签发
+  - [x] 6.4 实现 COS 临时密钥签发
   - [x] 6.5 实现 `POST /api/v1/cos/events`
-  - [ ] 6.6 实现 COS-only manifest 解析和校验
-  - [ ] 6.7 测试重复 COS 事件幂等处理
+  - [x] 6.6 实现 COS-only manifest 解析和校验
+  - [x] 6.7 测试重复 COS 事件幂等处理
   - _Requirements: 2.1-2.5, 9.3_
 
 - [ ] 7. 抽取优化 Job Runner

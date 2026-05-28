@@ -62,6 +62,10 @@ export interface CloudRuntimeConfig {
   inputBucket: string;
   outputBucket: string;
   region: string;
+  cosUploadCredentialTtlSeconds: number;
+  cosDownloadUrlTtlSeconds: number;
+  cosUploadGrantMode: 'signed-url' | 'sts';
+  cosUploadStsRoleArn?: string;
   tencentSecretId?: string;
   tencentSecretKey?: string;
   tencentToken?: string;
@@ -200,6 +204,10 @@ export const config: ServerConfig = {
     inputBucket: process.env.COS_INPUT_BUCKET || 'optimizer-input',
     outputBucket: process.env.COS_OUTPUT_BUCKET || 'optimizer-output',
     region: process.env.TENCENT_REGION || process.env.COS_REGION || 'ap-nanjing',
+    cosUploadCredentialTtlSeconds: parsePositiveNumber(process.env.COS_UPLOAD_CREDENTIAL_TTL_SECONDS, 30 * 60),
+    cosDownloadUrlTtlSeconds: parsePositiveNumber(process.env.COS_DOWNLOAD_URL_TTL_SECONDS, 15 * 60),
+    cosUploadGrantMode: process.env.COS_UPLOAD_GRANT_MODE === 'sts' ? 'sts' : 'signed-url',
+    cosUploadStsRoleArn: process.env.COS_UPLOAD_STS_ROLE_ARN,
     tencentSecretId: process.env.TENCENT_SECRET_ID,
     tencentSecretKey: process.env.TENCENT_SECRET_KEY,
     tencentToken: process.env.TENCENT_TOKEN,

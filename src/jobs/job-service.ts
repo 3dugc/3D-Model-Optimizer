@@ -6,6 +6,8 @@ import { taskRegistry } from '../tasks/registry';
 import type { HeavyTaskDescriptor } from '../tasks/types';
 import type { CreateCloudJobInput, CloudJob } from './types';
 import { jobStore, type JobStore } from './job-store';
+import { assertTenantObjectPrefix } from './cos-manifest';
+import { HttpError } from '../utils/http-error';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -70,11 +72,12 @@ export class CloudJobService {
     const id = uuidv4();
     const filename = input.filename || 'input.glb';
     const inputObject = input.input || buildInputObject(id, input.tenantId, filename);
+    assertTenantObjectPrefix(input.tenantId, inputObject);
     const outputObject = buildOutputObject(id, input.tenantId);
     const reportObject = buildReportObject(id, input.tenantId);
     const task = input.task || buildDefaultTask({ ...input, filename });
     if (!taskRegistry.has(task.type)) {
-      throw new Error(`Unsupported taskType: ${task.type}`);
+      throw new HttpError(400, 'UNSUPPORTED_TASK_TYPE', `Unsupported taskType: ${task.type}`);
     }
 
     const paymentRequired = input.paymentRequired ?? false;
@@ -121,6 +124,12 @@ export class CloudJobService {
 
   async completeUpload(jobId: string, input?: CosObjectRef): Promise<CloudJob> {
     const job = await this.requireJob(jobId);
+    if (job.status !== 'waiting_upload' && job.status !== 'waiting_manifest') {
+      return job;
+    }
+    if (input) {
+      assertTenantObjectPrefix(job.tenantId, input);
+    }
     const updates: Partial<CloudJob> = {
       uploadedAt: nowIso(),
       inputBucket: input?.bucket || job.inputBucket,

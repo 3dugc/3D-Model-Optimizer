@@ -622,6 +622,70 @@ TENCENT_TOKEN=                                 # 使用实例角色时由 metada
 7. [x] 提交真实任务，验证 API、CMQ、COS、Dispatcher AS 和 Worker 全链路都能使用实例角色临时凭证。
 8. [x] 验证通过后，停用旧永久密钥；不要创建新的 `modeloptimizer` API key。
 
+## 外部系统接入
+
+外部系统不直接把大文件传给入口 API，只通过 API 拿到 COS 上传授权，或把 manifest 放到 COS 后由事件触发任务。
+
+### API Key scope
+
+生产环境优先使用 `API_KEYS` JSON 数组配置不同外部系统的租户、任务类型和权限范围。旧的 `API_KEY` 仍保留为全权限兼容入口。
+
+```text
+API_KEYS=[{"name":"partner-a","key":"<secret>","tenantId":"tenant-a","taskTypes":["model.optimize"],"scopes":["jobs:create","jobs:read","jobs:complete","jobs:result","upload:grant","cos:events"]}]
+```
+
+常用 scope：
+
+```text
+jobs:create
+jobs:read
+jobs:complete
+jobs:result
+jobs:cancel
+upload:grant
+cos:events
+```
+
+### 创建任务后上传
+
+1. 外部系统调用 `POST /api/v1/jobs`，body 包含 `tenantId`、`taskType`、`filename`、`callbackUrl` 和 `idempotencyKey`。
+2. 入口 API 创建 `waiting_upload` Job，并返回 `upload.grant`。
+3. 默认 `COS_UPLOAD_GRANT_MODE=signed-url`，grant 中包含只允许写入单个对象的短期 `PUT` URL。
+4. 上传完成后调用 `POST /api/v1/jobs/{jobId}/complete-upload`，Job 进入 `queued` 并投递 CMQ。
+5. 任务完成后调用 `GET /api/v1/jobs/{jobId}/result-url` 获取短期下载 URL，或等待客户回调。
+
+如果要使用真正 STS 临时密钥，把入口运行时角色授权为可 `AssumeRole` 到上传专用角色，然后配置：
+
+```text
+COS_UPLOAD_GRANT_MODE=sts
+COS_UPLOAD_STS_ROLE_ARN=<upload-role-arn>
+COS_UPLOAD_CREDENTIAL_TTL_SECONDS=1800
+COS_DOWNLOAD_URL_TTL_SECONDS=900
+```
+
+### COS-only manifest
+
+外部系统也可以直接上传模型和 manifest 到租户前缀：
+
+```text
+tenants/{tenantId}/incoming/source.glb
+tenants/{tenantId}/incoming/manifest.json
+```
+
+manifest 示例：
+
+```json
+{
+  "tenantId": "tenant-a",
+  "taskType": "model.optimize",
+  "input": "tenants/tenant-a/incoming/source.glb",
+  "callbackUrl": "https://partner.example.com/model-optimizer/callback",
+  "idempotencyKey": "partner-order-10001"
+}
+```
+
+COS 事件转发到 `POST /api/v1/cos/events` 后，入口 API 会下载 manifest、校验租户前缀、校验 `taskType` scope，并用 `idempotencyKey` 去重。没有显式幂等键时，系统会使用 manifest 对象位置和 ETag 生成幂等键。
+
 ## 新服务接入模板
 
 新增一个重后端服务时，不复制整套基础设施，只新增 task handler 和配置。

@@ -33,21 +33,22 @@
 
 ## P1 外部系统接入
 
-- [ ] 实现 COS 临时密钥签发接口。
+- [x] 实现 COS 临时密钥签发接口。
   - 限定只能上传到租户自己的 COS 前缀。
   - 限定有效期和操作权限。
-- [ ] 支持外部系统用临时密钥上传模型到 COS。
-- [ ] 支持 COS-only manifest 接入。
+- [x] 支持外部系统用临时密钥上传模型到 COS。
+- [x] 支持 COS-only manifest 接入。
   - manifest 需要声明 `tenantId`、`taskType`、输入文件、回调地址和幂等键。
-- [ ] 实现 COS-only manifest 解析和校验。
-- [ ] 验证 COS 事件可触发入队。
-- [ ] 验证 `POST /api/v1/jobs/:jobId/complete-upload` 可触发入队。
-- [ ] 测试重复 COS 事件幂等处理。
-- [ ] 实现 API Key scope 校验。
-- [ ] 添加 OpenAPI 文档。
-- [ ] 添加异步任务 API 测试。
-- [ ] 验证未注册 `taskType` 会被拒绝。
-- [ ] 验证 `GET /api/v1/jobs/:jobId/result-url` 返回短期下载链接。
+- [x] 实现 COS-only manifest 解析和校验。
+- [x] 验证 COS 事件可触发入队。
+- [x] 验证 `POST /api/v1/jobs/:jobId/complete-upload` 可触发入队。
+- [x] 测试重复 COS 事件幂等处理。
+- [x] 实现 API Key scope 校验。
+- [x] 添加 OpenAPI 文档。
+- [x] 添加异步任务 API 测试。
+- [x] 验证未注册 `taskType` 会被拒绝。
+- [x] 验证 `GET /api/v1/jobs/:jobId/result-url` 返回短期下载链接。
+  - 备注：代码和本地自动化测试已完成；线上部署验证需要先恢复 Portainer Stack 的 `DATABASE_URL`。
 
 ## P1 微信支付
 

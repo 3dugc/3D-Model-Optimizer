@@ -11,6 +11,7 @@ import { Request, Response, NextFunction } from 'express';
 import { OptimizationError, ERROR_CODES, ErrorResponse, ErrorCode } from '../models/error';
 import multer from 'multer';
 import logger from '../utils/logger';
+import { isHttpError } from '../utils/http-error';
 
 /**
  * HTTP status codes for different error types.
@@ -88,6 +89,12 @@ export function errorHandler(
     const statusCode = getStatusCode(err.code);
     const response = createErrorResponse(err.code, err.message, err.details);
     res.status(statusCode).json(response);
+    return;
+  }
+
+  if (isHttpError(err)) {
+    const response = createErrorResponse(err.code, err.message, err.details);
+    res.status(err.statusCode).json(response);
     return;
   }
 

@@ -18,9 +18,24 @@ export interface CosObjectRef {
 export interface TemporaryUploadGrant {
   provider: CloudProviderName;
   object: CosObjectRef;
-  tmpSecretId: string;
-  tmpSecretKey: string;
-  sessionToken: string;
+  uri: string;
+  expiresAt: string;
+  method: 'PUT';
+  putUrl?: string;
+  credentials?: {
+    tmpSecretId: string;
+    tmpSecretKey: string;
+    sessionToken: string;
+  };
+  allowedActions: string[];
+  allowedPrefix: string;
+}
+
+export interface SignedObjectUrl {
+  provider: CloudProviderName;
+  object: CosObjectRef;
+  method: 'GET' | 'PUT';
+  url: string;
   expiresAt: string;
 }
 
