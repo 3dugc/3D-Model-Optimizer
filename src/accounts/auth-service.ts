@@ -4,6 +4,7 @@ import { HttpError } from '../utils/http-error';
 export interface AuthServiceRuntimeConfig {
   baseUrl: string;
   loginUrl: string;
+  widgetConfigUrl: string;
   clientId: string;
   redirectUri: string;
 }
@@ -35,6 +36,19 @@ interface AuthServiceUserInfoResponse {
   error_description?: string;
 }
 
+export interface AuthServiceWechatWidgetConfig {
+  provider: 'wechat_website';
+  mode: 'widget' | 'mock';
+  appId?: string;
+  redirectUri?: string;
+  scope?: 'snsapi_login';
+  state?: string;
+  selfRedirect?: boolean;
+  callbackUrl?: string;
+  error?: string;
+  error_description?: string;
+}
+
 function buildAuthServiceUrl(path: string, runtimeConfig: AuthServiceRuntimeConfig): string {
   return new URL(path, runtimeConfig.baseUrl).toString();
 }
@@ -60,6 +74,14 @@ export function getAuthServiceRuntimeConfig(): AuthServiceRuntimeConfig | undefi
     loginUrl: buildAuthServiceUrl(config.webAuth.authServiceLoginPath, {
       baseUrl: config.webAuth.authServiceBaseUrl,
       loginUrl: '',
+      widgetConfigUrl: '',
+      clientId: config.webAuth.authServiceClientId,
+      redirectUri: config.webAuth.authServiceRedirectUri,
+    }),
+    widgetConfigUrl: buildAuthServiceUrl(`${config.webAuth.authServiceLoginPath.replace(/\/$/, '')}/widget-config`, {
+      baseUrl: config.webAuth.authServiceBaseUrl,
+      loginUrl: '',
+      widgetConfigUrl: '',
       clientId: config.webAuth.authServiceClientId,
       redirectUri: config.webAuth.authServiceRedirectUri,
     }),
@@ -133,10 +155,47 @@ export async function exchangeAuthServiceAuthorizationCode(
   };
 }
 
+export async function fetchAuthServiceWechatWidgetConfig(
+  input: { state: string; codeChallenge: string; returnTo?: string },
+  runtimeConfig = getAuthServiceRuntimeConfig()
+): Promise<AuthServiceWechatWidgetConfig> {
+  if (!runtimeConfig) {
+    throw new HttpError(503, 'AUTH_SERVICE_NOT_CONFIGURED', 'Unified auth service is not configured.');
+  }
+
+  const url = new URL(runtimeConfig.widgetConfigUrl);
+  url.searchParams.set('state', input.state);
+  url.searchParams.set('code_challenge', input.codeChallenge);
+  url.searchParams.set('code_challenge_method', 'S256');
+  if (input.returnTo && isSameOrigin(input.returnTo, runtimeConfig.redirectUri)) {
+    url.searchParams.set('return_to', input.returnTo);
+  }
+
+  const response = await fetch(url);
+  const body = await readJson<AuthServiceWechatWidgetConfig>(response);
+  if (!response.ok || body.error) {
+    throw new HttpError(
+      502,
+      'AUTH_SERVICE_WIDGET_CONFIG_FAILED',
+      body.error_description || body.error || 'Auth service widget config request failed.',
+      { status: response.status }
+    );
+  }
+  return body;
+}
+
 async function revokeAuthServiceRefreshToken(token: string, runtimeConfig: AuthServiceRuntimeConfig): Promise<void> {
   await fetch(buildAuthServiceUrl('/logout', runtimeConfig), {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ refresh_token: token }),
   });
+}
+
+function isSameOrigin(value: string, originSource: string): boolean {
+  try {
+    return new URL(value).origin === new URL(originSource).origin;
+  } catch {
+    return false;
+  }
 }

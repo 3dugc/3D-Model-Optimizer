@@ -69,6 +69,9 @@
     .auth-bar.show { display: flex; }
     .pay-qr { width: 180px; height: 180px; display: block; margin: 10px auto 8px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px; }
     .pay-code { display: block; word-break: break-all; color: #6c757d; font-size: 0.68rem; line-height: 1.35; }
+    .wechat-login-qr { min-height: 320px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .wechat-login-qr iframe { max-width: 100%; }
+    .wechat-login-status { min-height: 20px; }
 
     .hidden { display: none !important; }
     .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
@@ -240,6 +243,28 @@
     </div>
   </div>
 
+  <div class="modal fade" id="wechatLoginModal" tabindex="-1" aria-labelledby="wechatLoginModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header py-2">
+          <h6 class="modal-title" id="wechatLoginModalTitle"><i class="bi bi-wechat me-1 text-success"></i>微信登录</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <div class="modal-body text-center">
+          <div class="wechat-login-qr" id="wechatLoginQr">
+            <div class="spinner-border spinner-border-sm text-success" role="status"></div>
+          </div>
+          <div class="small text-muted wechat-login-status" id="wechatLoginStatus">请使用微信扫码登录</div>
+        </div>
+        <div class="modal-footer py-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="wechatLoginFallbackBtn">
+            <i class="bi bi-box-arrow-up-right me-1"></i>新页面打开
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script type="module">
     import * as THREE from 'three';
@@ -259,8 +284,12 @@
     let wechatOAuthMode = 'offiaccount';
     let authServiceConfigured = false;
     let authServiceLoginUrl = '';
+    let authServiceWidgetConfigPath = '';
+    let authServiceRedirectUri = '';
     let nativePaymentConfigured = false;
     let rechargePollTimer = null;
+    let wechatLoginScriptPromise = null;
+    let fallbackWechatLoginUrl = '';
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
     let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -402,12 +431,14 @@
         wechatOAuthMode = data.wechat?.oauthMode || 'offiaccount';
         authServiceConfigured = !!data.authService?.configured;
         authServiceLoginUrl = data.authService?.loginUrl || '';
+        authServiceWidgetConfigPath = data.authService?.widgetConfigPath || '';
+        authServiceRedirectUri = data.authService?.redirectUri || '';
         nativePaymentConfigured = !!data.wechat?.nativePaymentConfigured;
         document.getElementById('wechatOAuthLoginBtn').classList.toggle('hidden', !wechatOAuthConfigured);
         document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
         document.getElementById('wechatLoginHint').textContent = wechatOAuthConfigured
           ? (authServiceConfigured
-            ? '使用统一登录中心微信授权后余额会绑定到同一账户。'
+            ? '使用微信扫码登录后余额会绑定到同一账户。'
             : (wechatOAuthMode === 'website' ? '使用微信扫码登录后余额会绑定到同一微信账户。' : '使用微信授权登录后余额会绑定到同一微信账户。'))
           : (mockWechatLoginEnabled
             ? '当前为开发模拟登录，生产环境需要配置微信 OAuth。'
@@ -598,21 +629,109 @@
       }
     });
 
-    async function startAuthServiceLogin() {
+    async function createAuthServiceLoginRequest() {
       const state = randomToken();
       const codeVerifier = randomToken();
       const codeChallenge = await sha256Base64Url(codeVerifier);
       const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      const callbackOrigin = authServiceRedirectUri ? new URL(authServiceRedirectUri).origin : window.location.origin;
       sessionStorage.setItem('auth_service_state', state);
       sessionStorage.setItem('auth_service_code_verifier', codeVerifier);
       sessionStorage.setItem('auth_service_return_to', returnTo);
       const loginUrl = new URL(authServiceLoginUrl);
-      loginUrl.searchParams.set('return_to', returnTo);
+      if (callbackOrigin === window.location.origin) {
+        loginUrl.searchParams.set('return_to', returnTo);
+      }
       loginUrl.searchParams.set('state', state);
       loginUrl.searchParams.set('code_challenge', codeChallenge);
       loginUrl.searchParams.set('code_challenge_method', 'S256');
-      window.location.href = loginUrl.toString();
+      return { state, codeChallenge, returnTo, loginUrl: loginUrl.toString(), callbackOrigin };
     }
+
+    function loadWechatLoginScript() {
+      if (window.WxLogin) return Promise.resolve(window.WxLogin);
+      if (wechatLoginScriptPromise) return wechatLoginScriptPromise;
+      wechatLoginScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://res.wx.qq.com/connect/zh_CN/htmledition/js/wxLogin.js';
+        script.async = true;
+        script.onload = () => window.WxLogin ? resolve(window.WxLogin) : reject(new Error('微信扫码组件加载失败。'));
+        script.onerror = () => reject(new Error('微信扫码组件加载失败。'));
+        document.head.appendChild(script);
+      });
+      return wechatLoginScriptPromise;
+    }
+
+    function showWechatLoginModalSkeleton(message) {
+      const modalEl = document.getElementById('wechatLoginModal');
+      const qr = document.getElementById('wechatLoginQr');
+      const status = document.getElementById('wechatLoginStatus');
+      qr.innerHTML = '<div class="spinner-border spinner-border-sm text-success" role="status"></div>';
+      status.textContent = message || '正在加载微信二维码...';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+
+    async function renderWechatLoginModal(widgetConfig, fallbackUrl) {
+      fallbackWechatLoginUrl = fallbackUrl;
+      showWechatLoginModalSkeleton('正在加载微信二维码...');
+      if (widgetConfig.mode === 'mock' && widgetConfig.callbackUrl) {
+        window.location.href = widgetConfig.callbackUrl;
+        return;
+      }
+      if (!widgetConfig.appId || !widgetConfig.redirectUri || !widgetConfig.state) {
+        throw new Error('统一登录中心没有返回完整的微信扫码配置。');
+      }
+
+      await loadWechatLoginScript();
+      const qr = document.getElementById('wechatLoginQr');
+      const status = document.getElementById('wechatLoginStatus');
+      qr.innerHTML = '';
+      status.textContent = '请使用微信扫码登录';
+      new window.WxLogin({
+        self_redirect: widgetConfig.selfRedirect === true,
+        id: 'wechatLoginQr',
+        appid: widgetConfig.appId,
+        scope: widgetConfig.scope || 'snsapi_login',
+        redirect_uri: encodeURIComponent(widgetConfig.redirectUri),
+        state: widgetConfig.state,
+        style: 'black',
+        href: '',
+      });
+    }
+
+    async function startAuthServiceLogin() {
+      const request = await createAuthServiceLoginRequest();
+      fallbackWechatLoginUrl = request.loginUrl;
+      if (!authServiceWidgetConfigPath) {
+        window.location.href = request.loginUrl;
+        return;
+      }
+
+      showWechatLoginModalSkeleton('正在向统一登录中心请求二维码...');
+      try {
+        const res = await fetch(authServiceWidgetConfigPath, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            state: request.state,
+            codeChallenge: request.codeChallenge,
+            returnTo: request.callbackOrigin === window.location.origin ? request.returnTo : undefined,
+          }),
+        });
+        const widgetConfig = await res.json();
+        if (!res.ok) throw new Error(widgetConfig.error?.message || '微信扫码登录配置加载失败。');
+        await renderWechatLoginModal(widgetConfig, request.loginUrl);
+      } catch (error) {
+        document.getElementById('wechatLoginQr').innerHTML = '<i class="bi bi-exclamation-circle text-warning" style="font-size:2rem;"></i>';
+        document.getElementById('wechatLoginStatus').textContent = error.message === 'not_found'
+          ? '统一登录中心还没有部署扫码登录组件，请先更新 auth-service。'
+          : (error.message || '微信扫码登录暂不可用。');
+      }
+    }
+
+    document.getElementById('wechatLoginFallbackBtn').addEventListener('click', () => {
+      if (fallbackWechatLoginUrl) window.location.href = fallbackWechatLoginUrl;
+    });
 
     document.getElementById('wechatOAuthLoginBtn').addEventListener('click', async () => {
       if (authServiceConfigured && authServiceLoginUrl) {

@@ -5,6 +5,7 @@ import { config } from '../config';
 import { accountService } from '../accounts/account-service';
 import {
   exchangeAuthServiceAuthorizationCode,
+  fetchAuthServiceWechatWidgetConfig,
   getAuthServiceRuntimeConfig,
   isAuthServiceConfigured,
 } from '../accounts/auth-service';
@@ -33,6 +34,12 @@ interface MockLoginBody {
 interface AuthServiceCallbackBody {
   code?: string;
   codeVerifier?: string;
+}
+
+interface AuthServiceWidgetConfigBody {
+  state?: string;
+  codeChallenge?: string;
+  returnTo?: string;
 }
 
 interface CreateRechargeOrderBody {
@@ -101,6 +108,7 @@ router.get('/auth/providers', (_req: Request, res: Response) => {
       configured: authServiceConfigured,
       baseUrl: authServiceRuntime?.baseUrl,
       loginUrl: authServiceRuntime?.loginUrl,
+      widgetConfigPath: authServiceConfigured ? '/api/v1/account/auth/service/widget-config' : undefined,
       clientId: authServiceRuntime?.clientId,
       redirectUri: authServiceRuntime?.redirectUri,
     },
@@ -204,6 +212,27 @@ router.post('/auth/service/callback', async (req: Request, res: Response, next: 
       avatarUrl: profile.avatarUrl,
     });
     res.status(201).json(login);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/service/widget-config', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!isAuthServiceConfigured()) {
+      throw new HttpError(503, 'AUTH_SERVICE_NOT_CONFIGURED', 'Unified auth service is not configured.');
+    }
+    const body = req.body as AuthServiceWidgetConfigBody;
+    const state = body.state?.trim();
+    const codeChallenge = body.codeChallenge?.trim();
+    const returnTo = body.returnTo?.trim();
+    if (!state) throw new HttpError(400, 'AUTH_SERVICE_STATE_REQUIRED', 'Auth service state is required.');
+    if (!codeChallenge) {
+      throw new HttpError(400, 'AUTH_SERVICE_CODE_CHALLENGE_REQUIRED', 'Auth service PKCE code challenge is required.');
+    }
+
+    const widgetConfig = await fetchAuthServiceWechatWidgetConfig({ state, codeChallenge, returnTo });
+    res.json(widgetConfig);
   } catch (error) {
     next(error);
   }
