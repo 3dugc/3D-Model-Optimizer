@@ -21,7 +21,7 @@ function assertInvoiceEnabled(): void {
 function isWechatCallbackProbe(req: Request): boolean {
   const signature = req.get('Wechatpay-Signature');
   const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
-  return !signature && !body.resource;
+  return (!signature && !body.resource) || Boolean(signature?.startsWith('WECHATPAY/SIGNTEST/'));
 }
 
 router.get('/wechat/notify', (_req: Request, res: Response) => {
