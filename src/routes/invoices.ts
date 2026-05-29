@@ -18,6 +18,16 @@ function assertInvoiceEnabled(): void {
   }
 }
 
+function isWechatCallbackProbe(req: Request): boolean {
+  const signature = req.get('Wechatpay-Signature');
+  const body = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {};
+  return !signature && !body.resource;
+}
+
+router.get('/wechat/notify', (_req: Request, res: Response) => {
+  res.json({ code: 'SUCCESS', message: '成功' });
+});
+
 router.post('/wechat/title-notify', async (req: Request, res: Response, next: NextFunction) => {
   try {
     assertInvoiceEnabled();
@@ -33,6 +43,10 @@ router.post('/wechat/title-notify', async (req: Request, res: Response, next: Ne
 
 router.post('/wechat/notify', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (isWechatCallbackProbe(req)) {
+      res.json({ code: 'SUCCESS', message: '成功' });
+      return;
+    }
     assertInvoiceEnabled();
     const invoiceRequest = await invoiceService.handleWechatNotification(
       req.headers,
