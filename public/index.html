@@ -67,14 +67,14 @@
     /* Auth */
     .auth-bar { display: none; background: #fff; border-bottom: 1px solid #dee2e6; }
     .auth-bar.show { display: flex; }
+    .account-avatar, .account-avatar-placeholder { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; }
+    .account-avatar { object-fit: cover; }
+    .account-avatar-placeholder { display: inline-flex; align-items: center; justify-content: center; background: #e9f7ef; color: #198754; }
     .pay-qr { width: 180px; height: 180px; display: block; margin: 10px auto 8px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px; }
     .pay-code { display: block; word-break: break-all; color: #6c757d; font-size: 0.68rem; line-height: 1.35; }
     .wechat-login-qr { min-height: 320px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .wechat-login-qr iframe { max-width: 100%; }
     .wechat-login-qr img { width: min(260px, 100%); height: auto; }
-    .wechat-login-account { display: flex; align-items: center; gap: 10px; justify-content: center; min-height: 56px; }
-    .wechat-login-account img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
-    .wechat-login-account-icon { width: 44px; height: 44px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #e9f7ef; color: #198754; }
     .wechat-login-status { min-height: 20px; }
 
     .hidden { display: none !important; }
@@ -115,9 +115,13 @@
           </div>
           <div id="accountLoggedIn" class="hidden">
             <div class="d-flex justify-content-between align-items-center mb-2">
-              <div>
-                <div class="fw-semibold small" id="accountNickname">微信用户</div>
-                <div class="text-muted" style="font-size:0.7rem;" id="accountTenantId"></div>
+              <div class="d-flex align-items-center gap-2">
+                <img class="account-avatar hidden" id="accountAvatar" alt="微信头像">
+                <span class="account-avatar-placeholder" id="accountAvatarPlaceholder"><i class="bi bi-person-check"></i></span>
+                <div>
+                  <div class="fw-semibold small" id="accountNickname">微信用户</div>
+                  <div class="text-muted" style="font-size:0.7rem;" id="accountTenantId"></div>
+                </div>
               </div>
               <button class="btn btn-sm btn-outline-secondary" id="logoutWebUserBtn"><i class="bi bi-box-arrow-right"></i></button>
             </div>
@@ -258,13 +262,9 @@
           <div class="wechat-login-qr" id="wechatLoginQr">
             <div class="spinner-border spinner-border-sm text-success" role="status"></div>
           </div>
-          <div class="wechat-login-account hidden" id="wechatLoginAccount"></div>
           <div class="small text-muted wechat-login-status" id="wechatLoginStatus">请使用微信扫码登录</div>
         </div>
         <div class="modal-footer py-2">
-          <button type="button" class="btn btn-sm btn-success hidden" id="wechatLoginConfirmBtn">
-            <i class="bi bi-check2-circle me-1"></i>确认登录
-          </button>
           <button type="button" class="btn btn-sm btn-outline-secondary" id="wechatLoginFallbackBtn">
             <i class="bi bi-box-arrow-up-right me-1"></i>新页面打开
           </button>
@@ -299,7 +299,6 @@
     let wechatLoginScriptPromise = null;
     let wechatLoginPollTimer = null;
     let fallbackWechatLoginUrl = '';
-    let pendingWechatLoginRedirectUrl = '';
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
     let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -482,10 +481,26 @@
     function displayAccount(user, wallet) {
       document.getElementById('accountLoggedOut').classList.add('hidden');
       document.getElementById('accountLoggedIn').classList.remove('hidden');
-      document.getElementById('accountNickname').textContent = user.nickname || '微信用户';
-      document.getElementById('accountTenantId').textContent = user.tenantId;
+      document.getElementById('accountNickname').textContent = user.nickname || user.wechatAccountHint || '微信用户';
+      document.getElementById('accountTenantId').textContent = user.wechatAccountHint || `账号 ${shortAccountId(user)}`;
+      const avatar = document.getElementById('accountAvatar');
+      const placeholder = document.getElementById('accountAvatarPlaceholder');
+      if (user.avatarUrl) {
+        avatar.src = user.avatarUrl;
+        avatar.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+      } else {
+        avatar.removeAttribute('src');
+        avatar.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+      }
       document.getElementById('cashBalance').textContent = formatMoney(wallet.cashBalanceCents);
       document.getElementById('frozenBalance').textContent = formatMoney(wallet.frozenCents);
+    }
+
+    function shortAccountId(user) {
+      const source = user.authUserId || user.wechatUnionId || user.wechatOpenId || user.tenantId || '';
+      return source ? source.slice(-8) : '已登录';
     }
 
     function renderRechargeButtons() {
@@ -677,11 +692,7 @@
       const modalEl = document.getElementById('wechatLoginModal');
       const qr = document.getElementById('wechatLoginQr');
       const status = document.getElementById('wechatLoginStatus');
-      pendingWechatLoginRedirectUrl = '';
       qr.innerHTML = '<div class="spinner-border spinner-border-sm text-success" role="status"></div>';
-      document.getElementById('wechatLoginAccount').classList.add('hidden');
-      document.getElementById('wechatLoginAccount').innerHTML = '';
-      document.getElementById('wechatLoginConfirmBtn').classList.add('hidden');
       document.getElementById('wechatLoginFallbackBtn').classList.remove('hidden');
       status.textContent = message || '正在加载微信二维码...';
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
@@ -706,55 +717,11 @@
       if (!data.redirectUrl) throw new Error('统一登录中心没有返回授权回调。');
 
       stopWechatLoginPolling();
-      showWechatLoginConfirmation(data);
-      return true;
-    }
-
-    function showWechatLoginConfirmation(data) {
-      pendingWechatLoginRedirectUrl = data.redirectUrl || '';
-      const account = document.getElementById('wechatLoginAccount');
-      const qr = document.getElementById('wechatLoginQr');
-      const status = document.getElementById('wechatLoginStatus');
-      const user = data.user || {};
-      const displayName = user.displayName || '微信用户';
-      const accountHint = user.accountHint || '已识别微信账号';
-      qr.innerHTML = '<i class="bi bi-check-circle-fill text-success" style="font-size:2.5rem;"></i>';
-      account.innerHTML = '';
-      if (user.avatarUrl) {
-        const avatar = document.createElement('img');
-        avatar.src = user.avatarUrl;
-        avatar.alt = displayName;
-        account.appendChild(avatar);
-      } else {
-        const icon = document.createElement('span');
-        icon.className = 'wechat-login-account-icon';
-        icon.innerHTML = '<i class="bi bi-person-check"></i>';
-        account.appendChild(icon);
-      }
-      const text = document.createElement('div');
-      text.className = 'text-start';
-      const name = document.createElement('div');
-      name.className = 'fw-semibold small';
-      name.textContent = displayName;
-      const hint = document.createElement('div');
-      hint.className = 'text-muted small';
-      hint.textContent = accountHint;
-      text.append(name, hint);
-      account.appendChild(text);
-      account.classList.remove('hidden');
-      status.textContent = '请确认这是你的微信账号';
-      document.getElementById('wechatLoginConfirmBtn').classList.remove('hidden');
-      document.getElementById('wechatLoginFallbackBtn').classList.add('hidden');
-    }
-
-    async function completeConfirmedWechatLogin() {
-      if (!pendingWechatLoginRedirectUrl) return;
-      const redirectUrl = pendingWechatLoginRedirectUrl;
-      pendingWechatLoginRedirectUrl = '';
-      document.getElementById('wechatLoginStatus').textContent = '正在登录...';
-      const consumed = await consumeAuthServiceCallbackFromUrl(redirectUrl);
-      if (!consumed) window.location.href = redirectUrl;
+      document.getElementById('wechatLoginStatus').textContent = '扫码成功，正在登录...';
+      const consumed = await consumeAuthServiceCallbackFromUrl(data.redirectUrl);
+      if (!consumed) window.location.href = data.redirectUrl;
       bootstrap.Modal.getOrCreateInstance(document.getElementById('wechatLoginModal')).hide();
+      return true;
     }
 
     function startOfficialQrPolling(widgetConfig) {
@@ -856,17 +823,7 @@
     document.getElementById('wechatLoginFallbackBtn').addEventListener('click', () => {
       if (fallbackWechatLoginUrl) window.location.href = fallbackWechatLoginUrl;
     });
-    document.getElementById('wechatLoginConfirmBtn').addEventListener('click', async () => {
-      try {
-        await completeConfirmedWechatLogin();
-      } catch (error) {
-        document.getElementById('wechatLoginStatus').textContent = error.message || '微信登录失败。';
-      }
-    });
-    document.getElementById('wechatLoginModal').addEventListener('hidden.bs.modal', () => {
-      stopWechatLoginPolling();
-      pendingWechatLoginRedirectUrl = '';
-    });
+    document.getElementById('wechatLoginModal').addEventListener('hidden.bs.modal', stopWechatLoginPolling);
 
     document.getElementById('wechatOAuthLoginBtn').addEventListener('click', async () => {
       if (authServiceConfigured && authServiceLoginUrl) {

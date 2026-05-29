@@ -105,6 +105,12 @@ function buildRelativeRedirectUrl(returnTo: string, params: Record<string, strin
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
+function buildWechatAccountHint(unionId: string | undefined, openId: string | undefined): string | undefined {
+  if (unionId) return `微信 UnionID 后8位 ${unionId.slice(-8)}`;
+  if (openId) return `微信 OpenID 后8位 ${openId.slice(-8)}`;
+  return undefined;
+}
+
 router.get('/auth/providers', (_req: Request, res: Response) => {
   const authServiceRuntime = getAuthServiceRuntimeConfig();
   const authServiceConfigured = Boolean(authServiceRuntime);
@@ -182,6 +188,7 @@ router.get('/auth/wechat/callback', async (req: Request, res: Response, next: Ne
     const login = await accountService.loginWithWechat({
       openId: profile.openId,
       unionId: profile.unionId,
+      accountHint: buildWechatAccountHint(profile.unionId, profile.openId),
       nickname: profile.nickname || '微信用户',
       avatarUrl: profile.avatarUrl,
     });
@@ -214,6 +221,7 @@ router.post('/auth/service/callback', async (req: Request, res: Response, next: 
     const login = await accountService.loginWithAuthService({
       authUserId: profile.authUserId,
       unionId: profile.unionId,
+      accountHint: profile.accountHint,
       nickname: profile.nickname || '微信用户',
       avatarUrl: profile.avatarUrl,
     });
@@ -271,6 +279,7 @@ router.post('/auth/wechat/mock-login', async (req: Request, res: Response, next:
     const login = await accountService.loginWithWechat({
       openId: body.openId || `mock-openid-${uuidv4()}`,
       unionId: body.unionId,
+      accountHint: buildWechatAccountHint(body.unionId, body.openId),
       nickname: body.nickname || '微信用户',
       avatarUrl: body.avatarUrl,
     });

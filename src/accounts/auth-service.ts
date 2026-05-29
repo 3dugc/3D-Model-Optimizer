@@ -12,6 +12,7 @@ export interface AuthServiceRuntimeConfig {
 export interface AuthServiceProfile {
   authUserId: string;
   unionId?: string;
+  accountHint?: string;
   nickname?: string;
   avatarUrl?: string;
 }
@@ -32,6 +33,9 @@ interface AuthServiceUserInfoResponse {
   unionid?: string;
   name?: string;
   picture?: string;
+  account_hint?: string;
+  wechat_openid_tail?: string;
+  wechat_unionid_tail?: string;
   error?: string;
   error_description?: string;
 }
@@ -57,11 +61,6 @@ export interface AuthServiceWechatWidgetConfig {
 export interface AuthServiceWechatScanStatus {
   status?: 'pending' | 'confirmed';
   redirectUrl?: string;
-  user?: {
-    displayName?: string;
-    avatarUrl?: string;
-    accountHint?: string;
-  };
   error?: string;
   error_description?: string;
 }
@@ -167,9 +166,16 @@ export async function exchangeAuthServiceAuthorizationCode(
   return {
     authUserId: userInfo.sub,
     unionId: userInfo.unionid,
+    accountHint: userInfo.account_hint || buildAuthServiceAccountHint(userInfo),
     nickname: userInfo.name,
     avatarUrl: userInfo.picture,
   };
+}
+
+function buildAuthServiceAccountHint(userInfo: AuthServiceUserInfoResponse): string | undefined {
+  if (userInfo.wechat_unionid_tail) return `微信 UnionID 后8位 ${userInfo.wechat_unionid_tail}`;
+  if (userInfo.wechat_openid_tail) return `微信 OpenID 后8位 ${userInfo.wechat_openid_tail}`;
+  return undefined;
 }
 
 export async function fetchAuthServiceWechatWidgetConfig(

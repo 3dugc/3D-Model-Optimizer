@@ -6,6 +6,7 @@ export interface WebUser {
   authUserId?: string;
   wechatOpenId: string;
   wechatUnionId?: string;
+  wechatAccountHint?: string;
   nickname?: string;
   avatarUrl?: string;
   createdAt: string;
@@ -15,6 +16,7 @@ export interface WebUser {
 export interface UpsertWechatUserInput {
   openId: string;
   unionId?: string;
+  accountHint?: string;
   nickname?: string;
   avatarUrl?: string;
 }
@@ -22,6 +24,7 @@ export interface UpsertWechatUserInput {
 export interface UpsertAuthServiceUserInput {
   authUserId: string;
   unionId?: string;
+  accountHint?: string;
   nickname?: string;
   avatarUrl?: string;
 }
