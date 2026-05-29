@@ -9,7 +9,7 @@ Current scope:
 - WeChat OAuth authorize/callback flow for Official Account web auth and Open Platform website QR login.
 - Signed Web user bearer token for the frontend.
 - Wallet cash balance, frozen balance, and ledger.
-- Recharge order creation and mock paid settlement for local development.
+- WeChat Native recharge order creation and verified payment settlement.
 - Paid Web job creation with a `100` cent hold.
 - Worker-side settlement on success and release on final system failure.
 
