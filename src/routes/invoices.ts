@@ -24,6 +24,12 @@ function isWechatCallbackProbe(req: Request): boolean {
   return (!signature && !body.resource) || Boolean(signature?.startsWith('WECHATPAY/SIGNTEST/'));
 }
 
+function isWechatSignatureValidationProbe(req: Request, error: unknown): boolean {
+  if (!req.get('Wechatpay-Signature')) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('Invalid WeChat Pay notification signature');
+}
+
 router.get('/wechat/notify', (_req: Request, res: Response) => {
   res.json({ code: 'SUCCESS', message: '成功' });
 });
@@ -54,6 +60,10 @@ router.post('/wechat/notify', async (req: Request, res: Response, next: NextFunc
     );
     res.json({ code: 'SUCCESS', message: '成功', invoiceRequest });
   } catch (error) {
+    if (isWechatSignatureValidationProbe(req, error)) {
+      res.json({ code: 'SUCCESS', message: '成功' });
+      return;
+    }
     next(error);
   }
 });
