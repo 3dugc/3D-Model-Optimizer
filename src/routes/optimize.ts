@@ -27,6 +27,8 @@ import {
 import { OptimizationOptions, OPTIMIZATION_PRESETS, PresetName } from '../models/options';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { validateOptions } from '../utils/options-validator';
+import { accountService } from '../accounts/account-service';
+import { requireWebUser, requireWebUserId } from '../middleware';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -141,8 +143,20 @@ function extractZipAndFindModel(zipPath: string, tempDir: string): string {
  */
 router.post(
   '/',
+  requireWebUser,
   upload.single('file'),
   async (req: Request, res: Response, next: NextFunction) => {
+    let taskId: string | undefined;
+    let chargeHeld = false;
+    let chargeSettled = false;
+
+    const releaseHeldCharge = async (note = 'Optimization failed'): Promise<void> => {
+      if (!taskId || !chargeHeld || chargeSettled) return;
+      await accountService.releaseJobCharge(taskId, note).catch((releaseError) => {
+        logger.warn({ taskId, error: releaseError }, 'Failed to release optimization charge');
+      });
+    };
+
     try {
       if (!req.file) {
         throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'No file uploaded.', {
@@ -153,10 +167,13 @@ router.post(
       const fileBuffer = req.file.buffer;
       const originalFilename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
       const ext = getFileExtension(originalFilename);
+      const userId = requireWebUserId(req);
 
-      const taskId = uuidv4();
+      taskId = uuidv4();
       const tempDir = path.join('./temp', taskId);
       fs.mkdirSync(tempDir, { recursive: true });
+      await accountService.holdOptimizationCharge(userId, taskId);
+      chargeHeld = true;
 
       let uploadedFilePath: string;
       let modelExt: string;
@@ -247,8 +264,13 @@ router.post(
       result.taskId = taskId;
       result.downloadUrl = `/api/download/${taskId}`;
 
-      res.json({ ...result, conversion: conversionInfo });
+      await accountService.settleJobCharge(taskId);
+      chargeSettled = true;
+      const wallet = await accountService.getWallet(userId);
+
+      res.json({ ...result, conversion: conversionInfo, wallet });
     } catch (error) {
+      await releaseHeldCharge(error instanceof Error ? error.message : 'Optimization failed');
       next(error);
     }
   }

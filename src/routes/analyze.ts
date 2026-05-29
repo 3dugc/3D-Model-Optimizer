@@ -23,6 +23,7 @@ import {
   SUPPORTED_FORMATS,
 } from '../components/format-converter';
 import { OptimizationError, ERROR_CODES } from '../models/error';
+import { requireWebUser } from '../middleware';
 
 const router = Router();
 
@@ -233,7 +234,7 @@ async function analyzeDocument(document: Document, filename: string, fileSize: n
  *       400:
  *         description: Invalid file
  */
-router.post('/', upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/', requireWebUser, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
   const tempDir = path.join('./temp', `analyze-${uuidv4()}`);
 
   try {

@@ -172,7 +172,7 @@ parseResult(report)
 Web 产品使用微信登录、预充值钱包和微信支付 **Native 支付**。详细前端、扣费和发票设计见 `docs/frontend-payment-invoice-design.md`。
 
 1. 用户通过微信扫码或微信内网页授权登录。
-2. 用户选择 `10`、`30`、`50`、`100` 元充值档位。
+2. 用户选择 `8`、`18`、`38`、`88` 元充值档位。
 3. Billing service 调用微信支付 Native 下单接口，获取 `code_url`。
 4. Web UI 把 `code_url` 转成二维码展示。
 5. 微信支付异步回调到 `POST /api/v1/payments/wechat/notify`。

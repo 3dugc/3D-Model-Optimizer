@@ -10,6 +10,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { getResultFilePath, resultFileExists } from '../utils/storage';
 import { OptimizationError, ERROR_CODES } from '../models/error';
+import { accountService } from '../accounts/account-service';
+import { requireWebUser, requireWebUserId } from '../middleware';
+import { HttpError } from '../utils/http-error';
 import * as fs from 'fs';
 
 const router = Router();
@@ -56,9 +59,10 @@ const router = Router();
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.get('/:taskId', async (req: Request, res: Response, next: NextFunction) => {
+router.get('/:taskId', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { taskId } = req.params;
+    const userId = requireWebUserId(req);
 
     // Validate taskId format (basic UUID check)
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,6 +82,11 @@ router.get('/:taskId', async (req: Request, res: Response, next: NextFunction) =
         'Task not found or optimization not completed',
         { taskId }
       );
+    }
+
+    const charge = await accountService.getJobCharge(taskId);
+    if (charge && charge.userId !== userId) {
+      throw new HttpError(403, 'FORBIDDEN', 'You do not have access to this optimized file.');
     }
 
     // Get file path

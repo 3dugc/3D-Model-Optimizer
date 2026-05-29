@@ -9,6 +9,7 @@ import { createWebUserToken } from './token';
 import type {
   CreatePaidWebJobInput,
   CreateRechargeOrderInput,
+  JobCharge,
   RechargeOrder,
   UpsertAuthServiceUserInput,
   UpsertWechatUserInput,
@@ -39,6 +40,15 @@ function assertRechargePackage(amountCents: number): void {
       `Recharge amount must be one of: ${config.billing.rechargePackagesCents.join(', ')} cents.`
     );
   }
+}
+
+function normalizeWalletChargeError(error: unknown): Error {
+  if (error instanceof Error && error.message === 'Insufficient wallet balance') {
+    return new HttpError(402, 'INSUFFICIENT_BALANCE', '余额不足，请先充值后再优化。', {
+      requiredCents: config.billing.defaultJobPriceCents,
+    });
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 export class AccountService {
@@ -165,16 +175,21 @@ export class AccountService {
       userId: user.id,
     });
     try {
-      const held = await this.store.holdJobCharge({
-        user,
-        jobId: job.id,
-        amountCents: config.billing.defaultJobPriceCents,
-      });
+      const held = await this.holdChargeForUser(user, job.id);
       const authorized = await this.jobs.markWalletChargeHeld(job.id, held.charge.id);
       return { job: authorized, wallet: held.wallet };
     } catch (error) {
       await this.jobs.cancelJob(job.id).catch(() => undefined);
-      throw error;
+      throw normalizeWalletChargeError(error);
+    }
+  }
+
+  async holdOptimizationCharge(userId: string, jobId: string): Promise<{ charge: JobCharge; wallet: Wallet }> {
+    const user = await this.requireUser(userId);
+    try {
+      return await this.holdChargeForUser(user, jobId);
+    } catch (error) {
+      throw normalizeWalletChargeError(error);
     }
   }
 
@@ -184,6 +199,18 @@ export class AccountService {
 
   async releaseJobCharge(jobId: string, note?: string): Promise<void> {
     await this.store.releaseJobCharge(jobId, note);
+  }
+
+  async getJobCharge(jobId: string): Promise<JobCharge | undefined> {
+    return this.store.getJobCharge(jobId);
+  }
+
+  private async holdChargeForUser(user: WebUser, jobId: string): Promise<{ charge: JobCharge; wallet: Wallet }> {
+    return this.store.holdJobCharge({
+      user,
+      jobId,
+      amountCents: config.billing.defaultJobPriceCents,
+    });
   }
 }
 

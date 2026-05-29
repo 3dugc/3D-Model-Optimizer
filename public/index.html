@@ -65,8 +65,6 @@
     .loading-box.show { display: block; }
 
     /* Auth */
-    .auth-bar { display: none; background: #fff; border-bottom: 1px solid #dee2e6; }
-    .auth-bar.show { display: flex; }
     .account-avatar, .account-avatar-placeholder { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; }
     .account-avatar { object-fit: cover; }
     .account-avatar-placeholder { display: inline-flex; align-items: center; justify-content: center; background: #e9f7ef; color: #198754; }
@@ -93,12 +91,6 @@
       </div>
     </nav>
 
-    <div class="auth-bar px-3 py-2 align-items-center gap-2" id="authBar">
-      <i class="bi bi-lock-fill text-warning"></i>
-      <input type="password" id="apiKeyInput" class="form-control form-control-sm" placeholder="输入 API Key" style="max-width:280px;">
-      <button id="saveApiKey" class="btn btn-sm btn-primary">保存</button>
-    </div>
-
     <div class="main-content">
       <div class="sidebar">
         <!-- Account and wallet -->
@@ -108,9 +100,6 @@
             <p class="text-muted small mb-2" id="wechatLoginHint">微信登录能力待配置。</p>
             <button class="btn btn-sm btn-success w-100 hidden mb-2" id="wechatOAuthLoginBtn">
               <i class="bi bi-wechat me-1"></i>微信登录
-            </button>
-            <button class="btn btn-sm btn-outline-success w-100" id="mockWechatLoginBtn">
-              <i class="bi bi-wechat me-1"></i>开发模拟微信登录
             </button>
           </div>
           <div id="accountLoggedIn" class="hidden">
@@ -284,10 +273,10 @@
     import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 
     let selectedFile = null, currentTaskId = null, modelAnalysis = null;
-    let apiKey = localStorage.getItem('api_key') || '';
     let webToken = localStorage.getItem('web_token') || '';
-    let rechargePackagesCents = [1000, 3000, 5000, 10000];
-    let mockWechatLoginEnabled = false;
+    let rechargePackagesCents = [800, 1800, 3800, 8800];
+    let jobPriceCents = 100;
+    let currentWallet = null;
     let wechatOAuthConfigured = false;
     let wechatOAuthMode = 'offiaccount';
     let authServiceConfigured = false;
@@ -315,20 +304,6 @@
     const modelInfoSection = document.getElementById('modelInfoSection');
     const optionsSection = document.getElementById('optionsSection');
 
-    // Auth
-    async function checkAuth() {
-      try {
-        const res = await fetch('/api/status/test-auth-check', { method: 'GET', headers: getAuthHeaders() });
-        if (res.status === 401) { document.getElementById('authBar').classList.add('show'); document.getElementById('apiKeyInput').value = apiKey; }
-      } catch (e) {}
-    }
-    checkAuth();
-    document.getElementById('saveApiKey').addEventListener('click', () => {
-      apiKey = document.getElementById('apiKeyInput').value;
-      localStorage.setItem('api_key', apiKey);
-      document.getElementById('authBar').classList.remove('show');
-    });
-    function getAuthHeaders() { return apiKey ? { 'x-api-key': apiKey } : {}; }
     function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
     function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
     function base64Url(buffer) {
@@ -436,7 +411,7 @@
         const res = await fetch('/api/v1/account/auth/providers');
         const data = await res.json();
         rechargePackagesCents = data.rechargePackagesCents || rechargePackagesCents;
-        mockWechatLoginEnabled = !!data.wechat?.mockLoginEnabled;
+        jobPriceCents = data.jobPriceCents || jobPriceCents;
         wechatOAuthConfigured = !!data.wechat?.oauthConfigured;
         wechatOAuthMode = data.wechat?.oauthMode || 'offiaccount';
         authServiceConfigured = !!data.authService?.configured;
@@ -445,15 +420,13 @@
         authServiceRedirectUri = data.authService?.redirectUri || '';
         nativePaymentConfigured = !!data.wechat?.nativePaymentConfigured;
         document.getElementById('wechatOAuthLoginBtn').classList.toggle('hidden', !wechatOAuthConfigured);
-        document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
         document.getElementById('wechatLoginHint').textContent = wechatOAuthConfigured
           ? (authServiceConfigured
             ? '使用微信扫码登录后余额会绑定到同一账户。'
             : (wechatOAuthMode === 'website' ? '使用微信扫码登录后余额会绑定到同一微信账户。' : '使用微信授权登录后余额会绑定到同一微信账户。'))
-          : (mockWechatLoginEnabled
-            ? '当前为开发模拟登录，生产环境需要配置微信 OAuth。'
-            : '生产登录需要配置公众号网页授权或微信开放平台网站应用。');
+          : '真实登录暂未配置，请联系管理员配置统一登录中心。';
         renderRechargeButtons();
+        updateOptimizeButtonLabel();
       } catch (error) {
         console.warn('Account provider metadata unavailable:', error);
       }
@@ -461,8 +434,10 @@
 
     async function refreshAccount() {
       if (!webToken) {
+        currentWallet = null;
         document.getElementById('accountLoggedOut').classList.remove('hidden');
         document.getElementById('accountLoggedIn').classList.add('hidden');
+        updateOptimizeButtonLabel();
         return;
       }
       try {
@@ -473,9 +448,18 @@
       } catch (error) {
         localStorage.removeItem('web_token');
         webToken = '';
+        currentWallet = null;
         document.getElementById('accountLoggedOut').classList.remove('hidden');
         document.getElementById('accountLoggedIn').classList.add('hidden');
+        updateOptimizeButtonLabel();
       }
+    }
+
+    function displayWallet(wallet) {
+      currentWallet = wallet;
+      document.getElementById('cashBalance').textContent = formatMoney(wallet.cashBalanceCents);
+      document.getElementById('frozenBalance').textContent = formatMoney(wallet.frozenCents);
+      updateOptimizeButtonLabel();
     }
 
     function displayAccount(user, wallet) {
@@ -494,8 +478,7 @@
         avatar.classList.add('hidden');
         placeholder.classList.remove('hidden');
       }
-      document.getElementById('cashBalance').textContent = formatMoney(wallet.cashBalanceCents);
-      document.getElementById('frozenBalance').textContent = formatMoney(wallet.frozenCents);
+      displayWallet(wallet);
     }
 
     function shortAccountId(user) {
@@ -506,11 +489,15 @@
     function renderRechargeButtons() {
       const container = document.getElementById('rechargeButtons');
       container.innerHTML = rechargePackagesCents.map((amount) => (
-        `<button class="btn btn-sm btn-outline-primary recharge-btn" data-amount="${amount}">充值 ${formatMoney(amount)}</button>`
+        `<button class="btn btn-sm btn-outline-primary recharge-btn" data-amount="${amount}" ${nativePaymentConfigured ? '' : 'disabled'}>充值 ${formatMoney(amount)}</button>`
       )).join('');
       container.querySelectorAll('.recharge-btn').forEach((button) => {
         button.addEventListener('click', () => createRechargeOrder(Number(button.dataset.amount)));
       });
+    }
+
+    function updateOptimizeButtonLabel() {
+      optimizeBtn.innerHTML = `<i class="bi bi-lightning-charge me-1"></i>开始优化 · ${formatMoney(jobPriceCents)}/次`;
     }
 
     function showWechatPayOrder(status, data) {
@@ -546,7 +533,7 @@
       const order = result.order;
       const wallet = result.wallet;
       status.textContent = `充值成功：${formatMoney(order.amountCents)}`;
-      displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: wallet.tenantId }, wallet);
+      displayWallet(wallet);
     }
 
     async function syncRechargeOrder(orderId, status) {
@@ -584,6 +571,10 @@
     async function createRechargeOrder(amountCents) {
       const status = document.getElementById('rechargeStatus');
       status.classList.remove('hidden');
+      if (!nativePaymentConfigured) {
+        status.textContent = '微信支付未配置，暂时不能充值。';
+        return;
+      }
       status.textContent = '正在创建微信支付订单...';
       try {
         const res = await fetch('/api/v1/account/wallet/recharge-orders', {
@@ -593,21 +584,8 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || '创建充值订单失败');
-        if (mockWechatLoginEnabled && !nativePaymentConfigured && data.order?.id) {
-          status.textContent = '开发模式：已创建模拟微信订单，正在模拟支付成功...';
-          const paid = await fetch(`/api/v1/account/wallet/recharge-orders/${data.order.id}/mock-paid`, {
-            method: 'POST',
-            headers: { ...getWebAuthHeaders(), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactionId: `mock-${Date.now()}` }),
-          });
-          const paidData = await paid.json();
-          if (!paid.ok) throw new Error(paidData.error?.message || '模拟支付失败');
-          status.textContent = `充值成功：${formatMoney(paidData.order.amountCents)}`;
-          displayAccount({ nickname: document.getElementById('accountNickname').textContent, tenantId: paidData.wallet.tenantId }, paidData.wallet);
-        } else {
-          showWechatPayOrder(status, data);
-          if (data.order?.id) startRechargePolling(data.order.id, status);
-        }
+        showWechatPayOrder(status, data);
+        if (data.order?.id) startRechargePolling(data.order.id, status);
       } catch (error) {
         status.textContent = error.message;
       }
@@ -635,23 +613,6 @@
         }
       } catch (error) {
         status.textContent = error.message;
-      }
-    });
-
-    document.getElementById('mockWechatLoginBtn').addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/v1/account/auth/wechat/mock-login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nickname: '开发测试用户' }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error?.message || '登录失败');
-        webToken = data.token;
-        localStorage.setItem('web_token', webToken);
-        displayAccount(data.user, data.wallet);
-      } catch (error) {
-        showError(error.message);
       }
     });
 
@@ -1004,14 +965,31 @@
     document.getElementById('btnWireframe').addEventListener('click', function() { wireframeMode = !wireframeMode; this.classList.toggle('active', wireframeMode); toggleWireframe(leftModel, wireframeMode); toggleWireframe(rightModel, wireframeMode); });
     document.getElementById('btnResetCamera').addEventListener('click', () => { if (leftModel) fitCamera(leftCamera, leftControls, leftModel); if (rightModel) fitCamera(rightCamera, rightControls, rightModel); });
 
+    function requireLoginForAction(action) {
+      if (webToken) return true;
+      showError(`请先登录账号后再${action}。`);
+      return false;
+    }
+
+    function hasEnoughBalance() {
+      return currentWallet && Number(currentWallet.cashBalanceCents || 0) >= jobPriceCents;
+    }
+
     // ===== Upload =====
-    uploadArea.addEventListener('click', () => fileInput.click());
+    uploadArea.addEventListener('click', () => { if (requireLoginForAction('上传模型')) fileInput.click(); });
     uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
     uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-    uploadArea.addEventListener('drop', (e) => { e.preventDefault(); uploadArea.classList.remove('dragover'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
-    fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      if (e.dataTransfer.files[0] && requireLoginForAction('上传模型')) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files[0] && requireLoginForAction('上传模型')) handleFile(e.target.files[0]);
+    });
 
     async function handleFile(file) {
+      if (!requireLoginForAction('上传模型')) return;
       const ext = file.name.split('.').pop().toLowerCase();
       if (!['glb','gltf','obj','stl','fbx','usdz','dae','step','stp','prt','catpart','catproduct','asm'].includes(ext)) { alert('不支持的文件格式'); return; }
       if (file.size > 100 * 1024 * 1024) { alert('文件超过 100MB'); return; }
@@ -1034,7 +1012,7 @@
       analyzeLoading.classList.add('show');
       const fd = new FormData(); fd.append('file', file);
       try {
-        const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers: getAuthHeaders() });
+        const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
         const data = await res.json();
         if (data.success) { modelAnalysis = data.analysis; displayModelInfo(data.analysis); modelInfoSection.classList.remove('hidden'); optionsSection.classList.remove('hidden'); optimizeBtn.disabled = false; updateHints(data.analysis); }
         else showError(`分析失败: ${data.error?.message || '未知错误'}`);
@@ -1088,6 +1066,11 @@
     // ===== Optimize (SSE with progress) =====
     optimizeBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
+      if (!requireLoginForAction('优化模型')) return;
+      if (!hasEnoughBalance()) {
+        showError(`余额不足，优化每次需要 ${formatMoney(jobPriceCents)}，请先充值。`);
+        return;
+      }
       loading.classList.add('show'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
       document.getElementById('progressSteps').innerHTML = '';
       document.getElementById('loadingText').textContent = '优化处理中...';
@@ -1097,7 +1080,11 @@
       else fd.append('options', JSON.stringify(getOptions()));
 
       try {
-        const res = await fetch('/api/optimize/stream', { method: 'POST', body: fd, headers: getAuthHeaders() });
+        const res = await fetch('/api/optimize/stream', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
+        if (!res.ok || !res.body) {
+          const data = await res.json().catch(() => null);
+          throw new Error(data?.error?.message || '优化请求失败');
+        }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -1135,6 +1122,8 @@
                   }
                 } else if (currentEvent === 'result') {
                   finalResult = data;
+                } else if (currentEvent === 'wallet') {
+                  if (data.wallet) displayWallet(data.wallet);
                 } else if (currentEvent === 'error') {
                   showError(`优化失败: ${data.message || '未知错误'}`);
                 }
@@ -1144,11 +1133,12 @@
         }
 
         if (finalResult && finalResult.success) {
+          if (finalResult.wallet) displayWallet(finalResult.wallet);
           currentTaskId = finalResult.taskId; displayResult(finalResult); resultSection.classList.remove('hidden');
           rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'none';
-          const dlUrl = apiKey ? `/api/download/${finalResult.taskId}?api_key=${encodeURIComponent(apiKey)}` : `/api/download/${finalResult.taskId}`;
           try {
-            rightModel = await loadModelFromUrl(dlUrl, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
+            const optimizedFile = await fetchOptimizedFile(finalResult.taskId);
+            rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
             if (wireframeMode) toggleWireframe(rightModel, true);
             if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
           } catch (e) { console.warn('Could not load optimized preview:', e); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('placeholderRight').textContent = '预览不可用'; }
@@ -1171,7 +1161,32 @@
       document.getElementById('stepsList').innerHTML = html;
     }
 
-    downloadBtn.addEventListener('click', () => { if (currentTaskId) { window.location.href = apiKey ? `/api/download/${currentTaskId}?api_key=${encodeURIComponent(apiKey)}` : `/api/download/${currentTaskId}`; } });
+    async function fetchOptimizedFile(taskId) {
+      const res = await fetch(`/api/download/${taskId}`, { headers: getWebAuthHeaders() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error?.message || '下载优化文件失败');
+      }
+      const blob = await res.blob();
+      return new File([blob], `optimized-${taskId}.glb`, { type: blob.type || 'model/gltf-binary' });
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+      if (!currentTaskId) return;
+      try {
+        const file = await fetchOptimizedFile(currentTaskId);
+        const url = URL.createObjectURL(file);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (error) {
+        showError(error.message);
+      }
+    });
 
     function formatSize(bytes) { if (!bytes) return '0 B'; if (bytes < 1024) return bytes + ' B'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / (1024 * 1024)).toFixed(2) + ' MB'; }
     function getOptions() {

@@ -31,12 +31,12 @@
 
 | 充值档位 | 可处理次数 | 发票口径 | 适用用户 |
 | --- | ---: | --- | --- |
-| 10 元 | 10 次 | 消费后可开 10 元 | 试用和低频用户 |
-| 30 元 | 30 次 | 消费后按已用金额开票 | 普通个人用户 |
-| 50 元 | 50 次 | 消费后按已用金额开票 | 小团队 |
-| 100 元 | 100 次 | 消费后按已用金额开票 | 高频用户/API 用户 |
+| 8 元 | 8 次 | 消费后按已用金额开票 | 试用和低频用户 |
+| 18 元 | 18 次 | 消费后按已用金额开票 | 普通个人用户 |
+| 38 元 | 38 次 | 消费后按已用金额开票 | 小团队 |
+| 88 元 | 88 次 | 消费后按已用金额开票 | 高频用户/API 用户 |
 
-暂不建议做“充 100 送 5 次”。如果后续做优惠，赠送部分必须作为 `bonus_balance` 或优惠券记录，不能按现金余额开票。
+暂不建议做“充 88 送 5 次”。如果后续做优惠，赠送部分必须作为 `bonus_balance` 或优惠券记录，不能按现金余额开票。
 
 余额规则：
 
@@ -127,7 +127,6 @@ stateDiagram-v2
 GET  /api/v1/account/auth/providers
 GET  /api/v1/account/auth/wechat/authorize
 GET  /api/v1/account/auth/wechat/callback
-POST /api/v1/account/auth/wechat/mock-login
 POST /api/v1/auth/logout
 GET  /api/v1/account/me
 ```
@@ -139,7 +138,6 @@ GET  /api/v1/account/wallet
 GET  /api/v1/account/wallet/ledger
 POST /api/v1/account/wallet/recharge-orders
 GET  /api/v1/account/wallet/recharge-orders/:orderId
-POST /api/v1/account/wallet/recharge-orders/:orderId/mock-paid
 POST /api/v1/account/wallet/wechat/notify
 ```
 
@@ -157,7 +155,7 @@ GET  /api/v1/jobs/:jobId
 
 - 已实现账户、钱包、充值订单、余额流水和任务冻结/扣费后端。
 - 已实现微信 OAuth 登录代码，支持公众号网页授权和开放平台网站扫码两种模式；回调会保存 `openid`，有 `unionid` 时同步保存，便于后续小程序共享账户。
-- 已保留本地开发用的模拟微信登录和模拟支付入账。
+- Web UI 只保留真实微信/统一登录；充值入账只走微信支付成功通知或订单同步确认。
 - 已实现微信支付 Native provider、API v3 请求签名、支付通知验签和 `resource` 解密。
 - 已在现有 Web UI 增加账户、余额和充值面板。
 - 已实现 Worker 成功完成后扣费、最终系统失败后释放冻结余额。

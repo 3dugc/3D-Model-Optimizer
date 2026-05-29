@@ -25,6 +25,10 @@ import {
 import { OptimizationOptions, OPTIMIZATION_PRESETS, PresetName } from '../models/options';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { validateOptions } from '../utils/options-validator';
+import { config } from '../config';
+import { accountService } from '../accounts/account-service';
+import { requireWebUser, requireWebUserId } from '../middleware';
+import { isHttpError } from '../utils/http-error';
 import logger from '../utils/logger';
 
 const router = Router();
@@ -51,6 +55,7 @@ const upload = multer({
  */
 router.post(
   '/',
+  requireWebUser,
   upload.single('file'),
   async (req: Request, res: Response) => {
     // Set SSE headers
@@ -64,6 +69,33 @@ router.post(
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    const userId = requireWebUserId(req);
+    let taskId: string | undefined;
+    let chargeHeld = false;
+    let chargeSettled = false;
+
+    const releaseHeldCharge = async (note = 'Optimization failed'): Promise<void> => {
+      if (!taskId || !chargeHeld || chargeSettled) return;
+      await accountService.releaseJobCharge(taskId, note).catch((releaseError) => {
+        logger.warn({ taskId, error: releaseError }, 'Failed to release optimization charge');
+      });
+    };
+
+    const sendFailure = async (code: string, message: string): Promise<void> => {
+      await releaseHeldCharge(message);
+      sendEvent('error', { code, message });
+      res.end();
+    };
+
+    const toErrorEvent = (error: unknown): { code: string; message: string } => {
+      if (error instanceof OptimizationError) return { code: error.code, message: error.message };
+      if (isHttpError(error)) return { code: error.code, message: error.message };
+      return {
+        code: 'OPTIMIZATION_FAILED',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      };
+    };
+
     try {
       if (!req.file) {
         sendEvent('error', { code: 'INVALID_FILE', message: 'No file uploaded' });
@@ -74,7 +106,18 @@ router.post(
       const fileBuffer = req.file.buffer;
       const originalFilename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
       const ext = getFileExtension(originalFilename);
-      const taskId = uuidv4();
+      taskId = uuidv4();
+
+      const holdCharge = async (): Promise<void> => {
+        if (chargeHeld || !taskId) return;
+        const held = await accountService.holdOptimizationCharge(userId, taskId);
+        chargeHeld = true;
+        sendEvent('wallet', {
+          wallet: held.wallet,
+          priceCents: config.billing.defaultJobPriceCents,
+          status: 'held',
+        });
+      };
 
       sendEvent('progress', { step: 'upload', status: 'done', message: '文件上传完成' });
 
@@ -93,11 +136,11 @@ router.post(
 
       // Convert if needed
       if (ext !== '.glb') {
+        await holdCharge();
         sendEvent('progress', { step: 'convert', status: 'start', message: `转换 ${ext.toUpperCase()} → GLB` });
         const conversionResult = await convertToGLB(uploadedFilePath, convertedGlbPath, originalFilename);
         if (!conversionResult.success) {
-          sendEvent('error', { code: 'CONVERSION_FAILED', message: conversionResult.error });
-          res.end();
+          await sendFailure('CONVERSION_FAILED', conversionResult.error || '格式转换失败');
           return;
         }
         inputGlbPath = convertedGlbPath;
@@ -106,10 +149,10 @@ router.post(
       } else {
         const validation = validateGlbBuffer(fileBuffer);
         if (!validation.isValid) {
-          sendEvent('error', { code: 'INVALID_FILE', message: validation.errors.join('; ') });
-          res.end();
+          await sendFailure('INVALID_FILE', validation.errors.join('; '));
           return;
         }
+        await holdCharge();
         inputGlbPath = uploadedFilePath;
       }
 
@@ -124,8 +167,7 @@ router.post(
           const custom = JSON.parse(req.body.options);
           options = presetName ? { ...options, ...custom } : custom;
         } catch {
-          sendEvent('error', { code: 'INVALID_OPTIONS', message: 'Invalid options JSON' });
-          res.end();
+          await sendFailure('INVALID_OPTIONS', 'Invalid options JSON');
           return;
         }
       }
@@ -161,13 +203,23 @@ router.post(
       result.taskId = taskId;
       result.downloadUrl = `/api/download/${taskId}`;
 
-      sendEvent('result', { ...result, conversion: conversionInfo });
+      await accountService.settleJobCharge(taskId);
+      chargeSettled = true;
+      const wallet = await accountService.getWallet(userId);
+      sendEvent('wallet', {
+        wallet,
+        priceCents: config.billing.defaultJobPriceCents,
+        status: 'charged',
+      });
+
+      sendEvent('result', { ...result, conversion: conversionInfo, wallet });
       sendEvent('done', { taskId });
       res.end();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      logger.error({ error: message }, 'SSE optimize failed');
-      sendEvent('error', { code: 'OPTIMIZATION_FAILED', message });
+      const event = toErrorEvent(error);
+      logger.error({ error: event.message }, 'SSE optimize failed');
+      await releaseHeldCharge(event.message);
+      sendEvent('error', event);
       res.end();
     }
   }

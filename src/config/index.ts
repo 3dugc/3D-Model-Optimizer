@@ -136,7 +136,6 @@ export interface BillingConfig {
 export interface WebAuthConfig {
   tokenSecret: string;
   tokenTtlSeconds: number;
-  mockLoginEnabled: boolean;
   authServiceEnabled: boolean;
   authServiceBaseUrl: string;
   authServiceLoginPath: string;
@@ -322,7 +321,7 @@ export const config: ServerConfig = {
     orderStorePath: process.env.ORDER_STORE_PATH || 'data/cloud/orders.json',
     accountStorePath: process.env.ACCOUNT_STORE_PATH || 'data/cloud/accounts.json',
     defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 100),
-    rechargePackagesCents: parsePositiveNumberCsv(process.env.RECHARGE_PACKAGES_CENTS, [1000, 3000, 5000, 10000]),
+    rechargePackagesCents: parsePositiveNumberCsv(process.env.RECHARGE_PACKAGES_CENTS, [800, 1800, 3800, 8800]),
     paymentServiceUrl: process.env.PAYMENT_SERVICE_URL,
     paymentServiceApiKey: process.env.PAYMENT_SERVICE_API_KEY,
     wechatNotifyUrl: process.env.WECHAT_PAY_NOTIFY_URL,
@@ -344,7 +343,6 @@ export const config: ServerConfig = {
   webAuth: {
     tokenSecret: process.env.WEB_AUTH_SECRET || process.env.API_KEY || 'dev-web-auth-secret',
     tokenTtlSeconds: parsePositiveNumber(process.env.WEB_AUTH_TOKEN_TTL_SECONDS, 30 * 24 * 60 * 60),
-    mockLoginEnabled: parseBoolean(process.env.WEB_AUTH_MOCK_LOGIN_ENABLED, false),
     authServiceEnabled: parseBoolean(process.env.AUTH_SERVICE_ENABLED, true),
     authServiceBaseUrl: stripTrailingSlash(process.env.AUTH_SERVICE_BASE_URL || 'https://auth.bujiaban.com'),
     authServiceLoginPath: process.env.AUTH_SERVICE_LOGIN_PATH || '/login/3dugc',

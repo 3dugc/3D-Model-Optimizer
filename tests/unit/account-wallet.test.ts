@@ -45,7 +45,7 @@ class PaidPaymentProvider implements PaymentProvider {
       outTradeNo,
       transactionId: `wx-${outTradeNo}`,
       tradeState: 'SUCCESS',
-      amountCents: 1000,
+      amountCents: 800,
     };
   }
 
@@ -75,13 +75,13 @@ describe('account wallet billing', () => {
 
     const order = await service.createRechargeOrder({
       userId: login.user.id,
-      amountCents: 1000,
+      amountCents: 800,
       description: 'Recharge',
       notifyUrl: 'https://example.com/wechat/notify',
     });
     const paid = await service.markRechargePaid(order.id, 'wx-transaction-a');
 
-    expect(paid.wallet.cashBalanceCents).toBe(1000);
+    expect(paid.wallet.cashBalanceCents).toBe(800);
     expect(paid.wallet.frozenCents).toBe(0);
 
     const paidJob = await service.createPaidWebJob({
@@ -95,7 +95,7 @@ describe('account wallet billing', () => {
     });
 
     expect(paidJob.job.status).toBe('queued');
-    expect(paidJob.wallet.cashBalanceCents).toBe(900);
+    expect(paidJob.wallet.cashBalanceCents).toBe(700);
     expect(paidJob.wallet.frozenCents).toBe(100);
     expect(queue.messages).toHaveLength(1);
 
@@ -103,7 +103,7 @@ describe('account wallet billing', () => {
     const settledWallet = await service.getWallet(login.user.id);
     const ledger = await service.listLedger(login.user.id);
 
-    expect(settledWallet.cashBalanceCents).toBe(900);
+    expect(settledWallet.cashBalanceCents).toBe(700);
     expect(settledWallet.frozenCents).toBe(0);
     expect(ledger.map((entry) => entry.type)).toEqual(['job_charge', 'job_hold', 'recharge_paid']);
   });
@@ -117,7 +117,7 @@ describe('account wallet billing', () => {
     const login = await service.loginWithWechat({ openId: 'openid-b' });
     const order = await service.createRechargeOrder({
       userId: login.user.id,
-      amountCents: 1000,
+      amountCents: 800,
       description: 'Recharge',
       notifyUrl: 'https://example.com/wechat/notify',
     });
@@ -130,7 +130,7 @@ describe('account wallet billing', () => {
     await service.releaseJobCharge(paidJob.job.id, 'test release');
     const wallet = await service.getWallet(login.user.id);
 
-    expect(wallet.cashBalanceCents).toBe(1000);
+    expect(wallet.cashBalanceCents).toBe(800);
     expect(wallet.frozenCents).toBe(0);
   });
 
@@ -142,7 +142,7 @@ describe('account wallet billing', () => {
 
     const order = await service.createRechargeOrder({
       userId: login.user.id,
-      amountCents: 1000,
+      amountCents: 800,
       description: 'Recharge',
       notifyUrl: 'https://example.com/wechat/notify',
     });
@@ -151,7 +151,29 @@ describe('account wallet billing', () => {
     expect(payments.outTradeNos).toContain(order.outTradeNo);
     expect(synced.order.status).toBe('paid');
     expect(synced.order.transactionId).toBe(`wx-${order.outTradeNo}`);
-    expect(synced.wallet.cashBalanceCents).toBe(1000);
+    expect(synced.wallet.cashBalanceCents).toBe(800);
+  });
+
+  it('holds and settles one yuan for a direct web optimization', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()));
+    const login = await service.loginWithWechat({ openId: 'openid-direct' });
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 800,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    await service.markRechargePaid(order.id, 'wx-transaction-direct');
+
+    const held = await service.holdOptimizationCharge(login.user.id, 'direct-task-id');
+    expect(held.wallet.cashBalanceCents).toBe(700);
+    expect(held.wallet.frozenCents).toBe(100);
+
+    await service.settleJobCharge('direct-task-id');
+    const settledWallet = await service.getWallet(login.user.id);
+    expect(settledWallet.cashBalanceCents).toBe(700);
+    expect(settledWallet.frozenCents).toBe(0);
   });
 
   it('binds unified auth users by auth user id and merges later WeChat unionid logins', async () => {

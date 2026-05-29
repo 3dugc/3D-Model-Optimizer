@@ -49,7 +49,7 @@ const app: Express = express();
 app.use(cors({
   origin: config.corsOrigins,
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-web-token'],
 }));
 
 // Security headers
@@ -111,11 +111,11 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 // API Routes (with optional authentication)
-app.use('/api/optimize/stream', authMiddleware, progressRouter);
-app.use('/api/optimize', authMiddleware, optimizeRouter);
-app.use('/api/download', authMiddleware, downloadRouter);
+app.use('/api/optimize/stream', progressRouter);
+app.use('/api/optimize', optimizeRouter);
+app.use('/api/download', downloadRouter);
 app.use('/api/status', authMiddleware, statusRouter);
-app.use('/api/analyze', authMiddleware, analyzeRouter);
+app.use('/api/analyze', analyzeRouter);
 app.use('/api/v1/account', accountRouter);
 app.use('/api/v1', authMiddleware, cloudJobsRouter);
 app.use('/api/v1/payments', authMiddleware, billingRouter);
