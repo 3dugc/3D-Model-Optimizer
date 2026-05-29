@@ -57,6 +57,11 @@ export interface AuthServiceWechatWidgetConfig {
 export interface AuthServiceWechatScanStatus {
   status?: 'pending' | 'confirmed';
   redirectUrl?: string;
+  user?: {
+    displayName?: string;
+    avatarUrl?: string;
+    accountHint?: string;
+  };
   error?: string;
   error_description?: string;
 }
