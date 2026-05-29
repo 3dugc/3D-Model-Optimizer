@@ -5,6 +5,7 @@ This module owns Web user identity, wallet balances, recharge orders, wallet led
 Current scope:
 
 - WeChat user upsert by `openid` / `unionid`.
+- Unified auth-service login by `auth_user_id` / `unionid`.
 - WeChat OAuth authorize/callback flow for Official Account web auth and Open Platform website QR login.
 - Signed Web user bearer token for the frontend.
 - Wallet cash balance, frozen balance, and ledger.
@@ -12,4 +13,14 @@ Current scope:
 - Paid Web job creation with a `100` cent hold.
 - Worker-side settlement on success and release on final system failure.
 
-Production WeChat login requires `WECHAT_OAUTH_APP_SECRET` and a WeChat-authorized callback domain. When WeChat returns `unionid`, the account store persists it so future mini program users can be merged under the same account.
+Production login should use the standalone auth-service by default:
+
+```text
+AUTH_SERVICE_ENABLED=true
+AUTH_SERVICE_BASE_URL=https://auth.bujiaban.com
+AUTH_SERVICE_LOGIN_PATH=/login/3dugc
+AUTH_SERVICE_CLIENT_ID=3dugc-web
+AUTH_SERVICE_REDIRECT_URI=https://3dugc.com/auth/callback
+```
+
+The frontend starts OAuth with PKCE through `https://auth.bujiaban.com/login/3dugc`, then this service exchanges the returned code and binds the local wallet user by `auth_user_id`. Legacy direct WeChat OAuth (`WECHAT_OAUTH_*`) remains as a fallback path.

@@ -3,13 +3,14 @@ import { config } from '../config';
 import { cloudJobService, type CloudJobService } from '../jobs/job-service';
 import type { CloudJob } from '../jobs/types';
 import { HttpError } from '../utils/http-error';
-import { createPaymentProvider, type PaymentProvider } from '../billing/payment-provider';
+import { createPaymentProvider, type PaymentProvider } from '../payments';
 import { accountStore, type AccountStore } from './account-store';
 import { createWebUserToken } from './token';
 import type {
   CreatePaidWebJobInput,
   CreateRechargeOrderInput,
   RechargeOrder,
+  UpsertAuthServiceUserInput,
   UpsertWechatUserInput,
   Wallet,
   WalletLedgerEntry,
@@ -49,6 +50,12 @@ export class AccountService {
 
   async loginWithWechat(input: UpsertWechatUserInput): Promise<{ user: WebUser; wallet: Wallet; token: string }> {
     const user = await this.store.upsertWechatUser(input);
+    const wallet = await this.store.getWallet(user.id);
+    return { user, wallet, token: createWebUserToken(user.id, user.tenantId) };
+  }
+
+  async loginWithAuthService(input: UpsertAuthServiceUserInput): Promise<{ user: WebUser; wallet: Wallet; token: string }> {
+    const user = await this.store.upsertAuthServiceUser(input);
     const wallet = await this.store.getWallet(user.id);
     return { user, wallet, token: createWebUserToken(user.id, user.tenantId) };
   }

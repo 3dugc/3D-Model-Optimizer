@@ -103,6 +103,11 @@ WECHAT_PAY_NOTIFY_URL=https://optimizer.example.com/api/v1/account/wallet/wechat
 WEB_AUTH_SECRET=<long-random-secret>
 WEB_AUTH_TOKEN_TTL_SECONDS=2592000
 WEB_AUTH_MOCK_LOGIN_ENABLED=false
+AUTH_SERVICE_ENABLED=true
+AUTH_SERVICE_BASE_URL=https://auth.bujiaban.com
+AUTH_SERVICE_LOGIN_PATH=/login/3dugc
+AUTH_SERVICE_CLIENT_ID=3dugc-web
+AUTH_SERVICE_REDIRECT_URI=https://3dugc.com/auth/callback
 WECHAT_LOGIN_MODE=offiaccount
 WECHAT_OAUTH_APP_ID=
 WECHAT_OAUTH_APP_SECRET=
@@ -121,7 +126,7 @@ DEFAULT_TASK_TYPE=model.optimize
 
 When SSH or host file upload is unavailable, `WECHAT_PAY_PRIVATE_KEY` and `WECHAT_PAY_PLATFORM_PUBLIC_KEY` / `WECHAT_PAY_PLATFORM_CERT` can be supplied directly through Portainer environment variables instead of PEM files. Prefer file paths for long-term operations; inline env is useful for first deployment or locked-down hosts. Keep merchant private key and APIv3 key out of Git and chat logs.
 
-微信登录与微信支付是两组配置。支付使用 `WECHAT_PAY_*`；登录使用 `WECHAT_OAUTH_*`。如果复用同一个已认证公众号，`WECHAT_OAUTH_APP_ID` 可以留空并回退到 `WECHAT_PAY_APP_ID`，但必须单独配置公众号 AppSecret。公众号网页授权模式使用 `WECHAT_LOGIN_MODE=offiaccount`、`WECHAT_OAUTH_SCOPE=snsapi_userinfo`，并在公众号后台把网页授权域名设置为 `3dugc.com`。如果要做桌面端微信扫码登录，需申请微信开放平台网站应用，改用 `WECHAT_LOGIN_MODE=website`、`WECHAT_OAUTH_SCOPE=snsapi_login`。登录回调会保存 `openid`，有 `unionid` 时同步保存，后续小程序接入同一开放平台主体后可用 `unionid` 合并账户。
+微信登录与微信支付是两组配置。支付使用 `WECHAT_PAY_*`；生产登录优先使用统一登录中心 `AUTH_SERVICE_*`，当前入口为 `https://auth.bujiaban.com/login/3dugc`，业务回调为 `https://3dugc.com/auth/callback`。本服务拿到 auth-service 的 `userinfo.sub` 后绑定本地 `auth_user_id` 和钱包用户，微信 AppSecret 不再放在 3D Model Optimizer 内。`WECHAT_OAUTH_*` 只作为旧的站内直连微信 OAuth 兜底路径保留。
 
 ## 5. Worker 环境变量
 

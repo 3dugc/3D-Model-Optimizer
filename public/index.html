@@ -257,6 +257,8 @@
     let mockWechatLoginEnabled = false;
     let wechatOAuthConfigured = false;
     let wechatOAuthMode = 'offiaccount';
+    let authServiceConfigured = false;
+    let authServiceLoginUrl = '';
     let nativePaymentConfigured = false;
     let rechargePollTimer = null;
     let wireframeMode = false, viewMode = 'split';
@@ -291,6 +293,31 @@
     function getAuthHeaders() { return apiKey ? { 'x-api-key': apiKey } : {}; }
     function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
     function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
+    function base64Url(buffer) {
+      return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+    }
+    function randomToken() {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      return base64Url(bytes.buffer);
+    }
+    async function sha256Base64Url(value) {
+      const data = new TextEncoder().encode(value);
+      return base64Url(await crypto.subtle.digest('SHA-256', data));
+    }
+    function sameOriginPathFromUrl(value) {
+      if (!value) return '/';
+      try {
+        const url = new URL(value, window.location.origin);
+        if (url.origin !== window.location.origin) return '/';
+        return `${url.pathname}${url.search}${url.hash}`;
+      } catch (error) {
+        return '/';
+      }
+    }
     function consumeWebTokenFromUrl() {
       const params = new URLSearchParams(window.location.search);
       const hashParams = window.location.hash.startsWith('#')
@@ -322,6 +349,49 @@
       }
     }
 
+    async function consumeAuthServiceCallbackFromUrl() {
+      if (window.location.pathname !== '/auth/callback') return false;
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get('code');
+      const state = params.get('state');
+      const error = params.get('error');
+      const returnTo = params.get('return_to') || sessionStorage.getItem('auth_service_return_to') || '/';
+      const expectedState = sessionStorage.getItem('auth_service_state');
+      const codeVerifier = sessionStorage.getItem('auth_service_code_verifier');
+
+      function clearAuthServiceSession() {
+        sessionStorage.removeItem('auth_service_state');
+        sessionStorage.removeItem('auth_service_code_verifier');
+        sessionStorage.removeItem('auth_service_return_to');
+      }
+
+      try {
+        if (error) throw new Error(`统一登录失败：${error}`);
+        if (!code) throw new Error('统一登录回调缺少授权码。');
+        if (!state || !expectedState || state !== expectedState) throw new Error('统一登录 state 校验失败。');
+        if (!codeVerifier) throw new Error('统一登录 PKCE 校验信息已失效，请重新登录。');
+
+        const res = await fetch('/api/v1/account/auth/service/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || '统一登录换取本地登录态失败。');
+        webToken = data.token;
+        localStorage.setItem('web_token', webToken);
+        clearAuthServiceSession();
+        window.history.replaceState(null, '', sameOriginPathFromUrl(returnTo));
+        displayAccount(data.user, data.wallet);
+        return true;
+      } catch (callbackError) {
+        clearAuthServiceSession();
+        window.history.replaceState(null, '', '/');
+        showError(callbackError.message);
+        return true;
+      }
+    }
+
     async function loadAccountProviders() {
       try {
         const res = await fetch('/api/v1/account/auth/providers');
@@ -330,11 +400,15 @@
         mockWechatLoginEnabled = !!data.wechat?.mockLoginEnabled;
         wechatOAuthConfigured = !!data.wechat?.oauthConfigured;
         wechatOAuthMode = data.wechat?.oauthMode || 'offiaccount';
+        authServiceConfigured = !!data.authService?.configured;
+        authServiceLoginUrl = data.authService?.loginUrl || '';
         nativePaymentConfigured = !!data.wechat?.nativePaymentConfigured;
         document.getElementById('wechatOAuthLoginBtn').classList.toggle('hidden', !wechatOAuthConfigured);
         document.getElementById('mockWechatLoginBtn').classList.toggle('hidden', !mockWechatLoginEnabled);
         document.getElementById('wechatLoginHint').textContent = wechatOAuthConfigured
-          ? (wechatOAuthMode === 'website' ? '使用微信扫码登录后余额会绑定到同一微信账户。' : '使用微信授权登录后余额会绑定到同一微信账户。')
+          ? (authServiceConfigured
+            ? '使用统一登录中心微信授权后余额会绑定到同一账户。'
+            : (wechatOAuthMode === 'website' ? '使用微信扫码登录后余额会绑定到同一微信账户。' : '使用微信授权登录后余额会绑定到同一微信账户。'))
           : (mockWechatLoginEnabled
             ? '当前为开发模拟登录，生产环境需要配置微信 OAuth。'
             : '生产登录需要配置公众号网页授权或微信开放平台网站应用。');
@@ -523,7 +597,32 @@
         showError(error.message);
       }
     });
-    document.getElementById('wechatOAuthLoginBtn').addEventListener('click', () => {
+
+    async function startAuthServiceLogin() {
+      const state = randomToken();
+      const codeVerifier = randomToken();
+      const codeChallenge = await sha256Base64Url(codeVerifier);
+      const returnTo = `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+      sessionStorage.setItem('auth_service_state', state);
+      sessionStorage.setItem('auth_service_code_verifier', codeVerifier);
+      sessionStorage.setItem('auth_service_return_to', returnTo);
+      const loginUrl = new URL(authServiceLoginUrl);
+      loginUrl.searchParams.set('return_to', returnTo);
+      loginUrl.searchParams.set('state', state);
+      loginUrl.searchParams.set('code_challenge', codeChallenge);
+      loginUrl.searchParams.set('code_challenge_method', 'S256');
+      window.location.href = loginUrl.toString();
+    }
+
+    document.getElementById('wechatOAuthLoginBtn').addEventListener('click', async () => {
+      if (authServiceConfigured && authServiceLoginUrl) {
+        try {
+          await startAuthServiceLogin();
+        } catch (error) {
+          showError(error.message);
+        }
+        return;
+      }
       const returnTo = `${window.location.pathname}${window.location.search}`;
       window.location.href = `/api/v1/account/auth/wechat/authorize?returnTo=${encodeURIComponent(returnTo || '/')}`;
     });
@@ -533,7 +632,11 @@
       refreshAccount();
     });
     consumeWebTokenFromUrl();
-    loadAccountProviders().then(refreshAccount);
+    (async () => {
+      await consumeAuthServiceCallbackFromUrl();
+      await loadAccountProviders();
+      await refreshAccount();
+    })();
 
     // ===== Three.js =====
     function createScene(container) {

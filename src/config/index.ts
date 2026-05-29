@@ -113,6 +113,8 @@ export interface BillingConfig {
   accountStorePath: string;
   defaultJobPriceCents: number;
   rechargePackagesCents: number[];
+  paymentServiceUrl?: string;
+  paymentServiceApiKey?: string;
   wechatNotifyUrl?: string;
   wechatAppId?: string;
   wechatMchId?: string;
@@ -135,6 +137,11 @@ export interface WebAuthConfig {
   tokenSecret: string;
   tokenTtlSeconds: number;
   mockLoginEnabled: boolean;
+  authServiceEnabled: boolean;
+  authServiceBaseUrl: string;
+  authServiceLoginPath: string;
+  authServiceClientId: string;
+  authServiceRedirectUri: string;
   wechatOAuthMode: 'offiaccount' | 'website';
   wechatOAuthAppId?: string;
   wechatOAuthAppSecret?: string;
@@ -194,6 +201,10 @@ function parsePositiveNumberCsv(value: string | undefined, defaultValue: number[
     .filter((item) => Number.isFinite(item) && item > 0)
     .map((item) => Math.floor(item));
   return parsed.length ? parsed : defaultValue;
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
 }
 
 function parseStateStoreProvider(): 'local' | 'mysql' | 'postgres' {
@@ -312,6 +323,8 @@ export const config: ServerConfig = {
     accountStorePath: process.env.ACCOUNT_STORE_PATH || 'data/cloud/accounts.json',
     defaultJobPriceCents: parsePositiveNumber(process.env.DEFAULT_JOB_PRICE_CENTS, 100),
     rechargePackagesCents: parsePositiveNumberCsv(process.env.RECHARGE_PACKAGES_CENTS, [1000, 3000, 5000, 10000]),
+    paymentServiceUrl: process.env.PAYMENT_SERVICE_URL,
+    paymentServiceApiKey: process.env.PAYMENT_SERVICE_API_KEY,
     wechatNotifyUrl: process.env.WECHAT_PAY_NOTIFY_URL,
     wechatAppId: process.env.WECHAT_PAY_APP_ID,
     wechatMchId: process.env.WECHAT_PAY_MCH_ID,
@@ -332,6 +345,11 @@ export const config: ServerConfig = {
     tokenSecret: process.env.WEB_AUTH_SECRET || process.env.API_KEY || 'dev-web-auth-secret',
     tokenTtlSeconds: parsePositiveNumber(process.env.WEB_AUTH_TOKEN_TTL_SECONDS, 30 * 24 * 60 * 60),
     mockLoginEnabled: parseBoolean(process.env.WEB_AUTH_MOCK_LOGIN_ENABLED, false),
+    authServiceEnabled: parseBoolean(process.env.AUTH_SERVICE_ENABLED, true),
+    authServiceBaseUrl: stripTrailingSlash(process.env.AUTH_SERVICE_BASE_URL || 'https://auth.bujiaban.com'),
+    authServiceLoginPath: process.env.AUTH_SERVICE_LOGIN_PATH || '/login/3dugc',
+    authServiceClientId: process.env.AUTH_SERVICE_CLIENT_ID || '3dugc-web',
+    authServiceRedirectUri: process.env.AUTH_SERVICE_REDIRECT_URI || 'https://3dugc.com/auth/callback',
     wechatOAuthMode: process.env.WECHAT_LOGIN_MODE === 'website' ? 'website' : 'offiaccount',
     wechatOAuthAppId: process.env.WECHAT_OAUTH_APP_ID || process.env.WECHAT_PAY_APP_ID,
     wechatOAuthAppSecret: process.env.WECHAT_OAUTH_APP_SECRET,

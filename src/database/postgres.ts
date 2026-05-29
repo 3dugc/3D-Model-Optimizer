@@ -154,12 +154,22 @@ async function runMigrations(client: SqlQueryable): Promise<void> {
     CREATE TABLE IF NOT EXISTS optimizer_users (
       id TEXT PRIMARY KEY,
       tenant_id TEXT NOT NULL,
+      auth_user_id TEXT,
       wechat_openid TEXT NOT NULL UNIQUE,
       wechat_unionid TEXT,
       user_json JSONB NOT NULL,
       created_at TIMESTAMPTZ NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL
     )
+  `);
+  await client.query(`
+    ALTER TABLE optimizer_users
+      ADD COLUMN IF NOT EXISTS auth_user_id TEXT
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS optimizer_users_auth_user_id_idx
+      ON optimizer_users (auth_user_id)
+      WHERE auth_user_id IS NOT NULL
   `);
   await client.query(`
     CREATE INDEX IF NOT EXISTS optimizer_users_tenant_idx

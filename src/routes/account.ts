@@ -3,6 +3,11 @@ import QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { accountService } from '../accounts/account-service';
+import {
+  exchangeAuthServiceAuthorizationCode,
+  getAuthServiceRuntimeConfig,
+  isAuthServiceConfigured,
+} from '../accounts/auth-service';
 import { verifyWebUserToken } from '../accounts/token';
 import {
   buildWechatOAuthAuthorizeUrl,
@@ -23,6 +28,11 @@ interface MockLoginBody {
   unionId?: string;
   nickname?: string;
   avatarUrl?: string;
+}
+
+interface AuthServiceCallbackBody {
+  code?: string;
+  codeVerifier?: string;
 }
 
 interface CreateRechargeOrderBody {
@@ -83,33 +93,32 @@ function buildRelativeRedirectUrl(returnTo: string, params: Record<string, strin
 }
 
 router.get('/auth/providers', (_req: Request, res: Response) => {
-  const wechatPaymentConfigured = Boolean(
-    config.billing.wechatAppId &&
-      config.billing.wechatMchId &&
-      (config.billing.wechatPrivateKey || config.billing.wechatPrivateKeyPath) &&
-      config.billing.wechatCertSerialNo &&
-      config.billing.wechatApiV3Key &&
-      (config.billing.wechatPlatformPublicKey ||
-        config.billing.wechatPlatformPublicKeyPath ||
-        config.billing.wechatPlatformCertificate ||
-        config.billing.wechatPlatformCertificatePath)
-  );
+  const authServiceRuntime = getAuthServiceRuntimeConfig();
+  const authServiceConfigured = Boolean(authServiceRuntime);
+  const wechatPaymentConfigured = Boolean(config.billing.paymentServiceUrl);
   res.json({
+    authService: {
+      configured: authServiceConfigured,
+      baseUrl: authServiceRuntime?.baseUrl,
+      loginUrl: authServiceRuntime?.loginUrl,
+      clientId: authServiceRuntime?.clientId,
+      redirectUri: authServiceRuntime?.redirectUri,
+    },
     wechat: {
       mockLoginEnabled: config.webAuth.mockLoginEnabled,
-      oauthConfigured: isWechatOAuthConfigured(),
-      oauthMode: config.webAuth.wechatOAuthMode,
+      oauthConfigured: authServiceConfigured || isWechatOAuthConfigured(),
+      oauthMode: authServiceConfigured ? 'auth_service' : config.webAuth.wechatOAuthMode,
       oauthAppIdConfigured: Boolean(config.webAuth.wechatOAuthAppId),
       oauthAppSecretConfigured: Boolean(config.webAuth.wechatOAuthAppSecret),
       oauthRedirectUrlConfigured: Boolean(config.webAuth.wechatOAuthRedirectUrl),
-      productionLoginConfigured: isWechatOAuthConfigured(),
+      productionLoginConfigured: authServiceConfigured || isWechatOAuthConfigured(),
       nativePaymentConfigured: config.billing.mode === 'wechat_native',
       wechatPaymentConfigured,
       unionIdSupported: true,
       requiredBeforeProduction: [
-        '公众号网页授权 AppID / AppSecret（微信内浏览器）或微信开放平台网站应用 AppID / AppSecret（桌面扫码）',
-        'OAuth 回调域名：3dugc.com',
-        'OAuth 回调地址：https://3dugc.com/api/v1/account/auth/wechat/callback',
+        '统一登录中心：https://auth.bujiaban.com/login/3dugc',
+        '业务 OAuth 回调地址：https://3dugc.com/auth/callback',
+        '业务后端用 code + code_verifier 换取 userinfo 后绑定 auth_user_id',
       ],
     },
     rechargePackagesCents: config.billing.rechargePackagesCents,
@@ -169,6 +178,32 @@ router.get('/auth/wechat/callback', async (req: Request, res: Response, next: Ne
         login: 'success',
       })
     );
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/service/callback', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!isAuthServiceConfigured()) {
+      throw new HttpError(503, 'AUTH_SERVICE_NOT_CONFIGURED', 'Unified auth service is not configured.');
+    }
+    const body = req.body as AuthServiceCallbackBody;
+    const code = body.code?.trim();
+    const codeVerifier = body.codeVerifier?.trim();
+    if (!code) throw new HttpError(400, 'AUTH_SERVICE_CODE_REQUIRED', 'Auth service authorization code is required.');
+    if (!codeVerifier) {
+      throw new HttpError(400, 'AUTH_SERVICE_CODE_VERIFIER_REQUIRED', 'Auth service PKCE code verifier is required.');
+    }
+
+    const profile = await exchangeAuthServiceAuthorizationCode(code, codeVerifier);
+    const login = await accountService.loginWithAuthService({
+      authUserId: profile.authUserId,
+      unionId: profile.unionId,
+      nickname: profile.nickname || '微信用户',
+      avatarUrl: profile.avatarUrl,
+    });
+    res.status(201).json(login);
   } catch (error) {
     next(error);
   }

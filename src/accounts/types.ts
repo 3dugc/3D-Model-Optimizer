@@ -3,6 +3,7 @@ import type { CreateCloudJobInput } from '../jobs/types';
 export interface WebUser {
   id: string;
   tenantId: string;
+  authUserId?: string;
   wechatOpenId: string;
   wechatUnionId?: string;
   nickname?: string;
@@ -13,6 +14,13 @@ export interface WebUser {
 
 export interface UpsertWechatUserInput {
   openId: string;
+  unionId?: string;
+  nickname?: string;
+  avatarUrl?: string;
+}
+
+export interface UpsertAuthServiceUserInput {
+  authUserId: string;
   unionId?: string;
   nickname?: string;
   avatarUrl?: string;
@@ -98,4 +106,3 @@ export interface CreateRechargeOrderInput {
 export interface CreatePaidWebJobInput extends Omit<CreateCloudJobInput, 'tenantId' | 'paymentRequired'> {
   userId: string;
 }
-

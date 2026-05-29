@@ -1,0 +1,3 @@
+[submodule "services/payment-service"]
+	path = services/payment-service
+	url = git@github.com:7dgame-com/wechat-pay.git

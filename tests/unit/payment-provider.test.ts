@@ -1,6 +1,6 @@
 import { createCipheriv, createVerify, generateKeyPairSync } from 'crypto';
 import { describe, expect, it } from 'vitest';
-import { buildWechatAuthorization, decryptWechatResource } from '../../src/billing/payment-provider';
+import { buildWechatAuthorization, decryptWechatResource } from '../../services/payment-service/src/wechat-native-provider';
 
 function extractHeaderValue(header: string, name: string): string {
   const match = header.match(new RegExp(`${name}="([^"]+)"`));

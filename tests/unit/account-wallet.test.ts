@@ -9,7 +9,7 @@ import { AccountService } from '../../src/accounts/account-service';
 import { LocalJobStore } from '../../src/jobs/job-store';
 import { CloudJobService } from '../../src/jobs/job-service';
 import type { CloudJob } from '../../src/jobs/types';
-import type { CreateNativePaymentInput, PaymentNotification, PaymentProvider } from '../../src/billing/payment-provider';
+import type { CreateNativePaymentInput, PaymentNotification, PaymentProvider } from '../../src/payments';
 
 class RecordingQueue implements QueueProvider {
   readonly providerName = 'local' as const;
@@ -152,5 +152,31 @@ describe('account wallet billing', () => {
     expect(synced.order.status).toBe('paid');
     expect(synced.order.transactionId).toBe(`wx-${order.outTradeNo}`);
     expect(synced.wallet.cashBalanceCents).toBe(1000);
+  });
+
+  it('binds unified auth users by auth user id and merges later WeChat unionid logins', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()));
+
+    const authLogin = await service.loginWithAuthService({
+      authUserId: 'auth-user-a',
+      unionId: 'union-shared-a',
+      nickname: '统一登录用户',
+    });
+    const repeatedAuthLogin = await service.loginWithAuthService({
+      authUserId: 'auth-user-a',
+      nickname: '统一登录用户二次登录',
+    });
+    const wechatLogin = await service.loginWithWechat({
+      openId: 'openid-shared-a',
+      unionId: 'union-shared-a',
+      nickname: '微信用户',
+    });
+
+    expect(repeatedAuthLogin.user.id).toBe(authLogin.user.id);
+    expect(wechatLogin.user.id).toBe(authLogin.user.id);
+    expect(wechatLogin.user.authUserId).toBe('auth-user-a');
+    expect(wechatLogin.user.wechatOpenId).toBe('openid-shared-a');
+    expect(wechatLogin.wallet.userId).toBe(authLogin.user.id);
   });
 });

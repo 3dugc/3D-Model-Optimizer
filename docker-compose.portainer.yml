@@ -30,6 +30,8 @@ services:
       JOB_LEASE_SECONDS: 300
       EXPIRED_JOB_RECOVERY_INTERVAL_SECONDS: 30
       BILLING_MODE: ${BILLING_MODE:-mock}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://wechat-pay:3010}
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
       DEFAULT_JOB_PRICE_CENTS: ${DEFAULT_JOB_PRICE_CENTS:-100}
       RECHARGE_PACKAGES_CENTS: ${RECHARGE_PACKAGES_CENTS:-1000,3000,5000,10000}
       WEB_AUTH_SECRET: ${WEB_AUTH_SECRET:-}
@@ -41,16 +43,6 @@ services:
       WECHAT_OAUTH_REDIRECT_URL: ${WECHAT_OAUTH_REDIRECT_URL:-https://3dugc.com/api/v1/account/auth/wechat/callback}
       WECHAT_OAUTH_SCOPE: ${WECHAT_OAUTH_SCOPE:-snsapi_userinfo}
       WECHAT_OAUTH_STATE_TTL_SECONDS: ${WECHAT_OAUTH_STATE_TTL_SECONDS:-600}
-      WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
-      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
-      WECHAT_PAY_PRIVATE_KEY: ${WECHAT_PAY_PRIVATE_KEY:-}
-      WECHAT_PAY_PRIVATE_KEY_PATH: ${WECHAT_PAY_PRIVATE_KEY_PATH:-/run/secrets/wechat-pay/apiclient_key.pem}
-      WECHAT_PAY_CERT_SERIAL_NO: ${WECHAT_PAY_CERT_SERIAL_NO:-}
-      WECHAT_PAY_API_V3_KEY: ${WECHAT_PAY_API_V3_KEY:-}
-      WECHAT_PAY_PLATFORM_PUBLIC_KEY: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
-      WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-/run/secrets/wechat-pay/wechatpay_public_key.pem}
-      WECHAT_PAY_PLATFORM_CERT: ${WECHAT_PAY_PLATFORM_CERT:-}
-      WECHAT_PAY_PLATFORM_CERT_PATH: ${WECHAT_PAY_PLATFORM_CERT_PATH:-}
       WECHAT_PAY_NOTIFY_URL: ${WECHAT_PAY_NOTIFY_URL:-https://3dugc.com/api/v1/account/wallet/wechat/notify}
       WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
       CALLBACK_TIMEOUT_SECONDS: 10
@@ -58,7 +50,6 @@ services:
     volumes:
       - optimizer-data:/app/data
       - optimizer-temp:/app/temp
-      - /opt/model-optimizer/wechat-pay:/run/secrets/wechat-pay:ro
     labels:
       - traefik.enable=true
       - traefik.docker.network=proxy
@@ -70,6 +61,38 @@ services:
       - traefik.http.services.optimizer-api.loadbalancer.server.port=3000
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  wechat-pay:
+    image: hkccr.ccs.tencentyun.com/plugins/wechat-pay:${WECHAT_PAY_IMAGE_TAG:-latest}
+    pull_policy: always
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
+      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
+      WECHAT_PAY_PRIVATE_KEY: ${WECHAT_PAY_PRIVATE_KEY:-}
+      WECHAT_PAY_PRIVATE_KEY_PATH: ${WECHAT_PAY_PRIVATE_KEY_PATH:-/run/secrets/wechat-pay/apiclient_key.pem}
+      WECHAT_PAY_CERT_SERIAL_NO: ${WECHAT_PAY_CERT_SERIAL_NO:-}
+      WECHAT_PAY_API_V3_KEY: ${WECHAT_PAY_API_V3_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-/run/secrets/wechat-pay/wechatpay_public_key.pem}
+      WECHAT_PAY_PLATFORM_CERT: ${WECHAT_PAY_PLATFORM_CERT:-}
+      WECHAT_PAY_PLATFORM_CERT_PATH: ${WECHAT_PAY_PLATFORM_CERT_PATH:-}
+      WECHAT_PAY_API_BASE_URL: ${WECHAT_PAY_API_BASE_URL:-https://api.mch.weixin.qq.com}
+      WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
+    volumes:
+      - /opt/model-optimizer/wechat-pay:/run/secrets/wechat-pay:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

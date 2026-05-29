@@ -120,6 +120,11 @@ app.use('/api/v1/account', accountRouter);
 app.use('/api/v1', authMiddleware, cloudJobsRouter);
 app.use('/api/v1/payments', authMiddleware, billingRouter);
 
+// Unified auth-service redirects to this route after OAuth authorization.
+app.get('/auth/callback', (_req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
+
 // 404 handler for undefined routes
 app.use(notFoundHandler);
 

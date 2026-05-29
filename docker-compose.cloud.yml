@@ -27,6 +27,8 @@ services:
       STATE_STORE_PROVIDER: mysql
       DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
       BILLING_MODE: mock
+      PAYMENT_SERVICE_URL: http://payment-service:3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
       HOST: 0.0.0.0
     ports:
       - "3000:3000"
@@ -36,6 +38,35 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      payment-service:
+        condition: service_started
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
+      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
+      WECHAT_PAY_PRIVATE_KEY: ${WECHAT_PAY_PRIVATE_KEY:-}
+      WECHAT_PAY_PRIVATE_KEY_PATH: ${WECHAT_PAY_PRIVATE_KEY_PATH:-}
+      WECHAT_PAY_CERT_SERIAL_NO: ${WECHAT_PAY_CERT_SERIAL_NO:-}
+      WECHAT_PAY_API_V3_KEY: ${WECHAT_PAY_API_V3_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-}
+      WECHAT_PAY_PLATFORM_CERT: ${WECHAT_PAY_PLATFORM_CERT:-}
+      WECHAT_PAY_PLATFORM_CERT_PATH: ${WECHAT_PAY_PLATFORM_CERT_PATH:-}
+      WECHAT_PAY_API_BASE_URL: ${WECHAT_PAY_API_BASE_URL:-https://api.mch.weixin.qq.com}
+      WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   optimizer-worker:
     build: .

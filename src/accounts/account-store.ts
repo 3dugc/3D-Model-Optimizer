@@ -9,6 +9,7 @@ import { ensurePostgresSchema, getPostgresPool, withPostgresTransaction, type Sq
 import type {
   JobCharge,
   RechargeOrder,
+  UpsertAuthServiceUserInput,
   UpsertWechatUserInput,
   Wallet,
   WalletLedgerEntry,
@@ -17,6 +18,7 @@ import type {
 
 export interface AccountStore {
   upsertWechatUser(input: UpsertWechatUserInput): Promise<WebUser>;
+  upsertAuthServiceUser(input: UpsertAuthServiceUserInput): Promise<WebUser>;
   getUser(userId: string): Promise<WebUser | undefined>;
   findUserByWechat(openId: string): Promise<WebUser | undefined>;
   getWallet(userId: string): Promise<Wallet>;
@@ -53,6 +55,10 @@ function nowIso(): string {
 
 function createWebTenantId(userId: string): string {
   return `web-${userId}`;
+}
+
+function createAuthServiceWechatOpenId(authUserId: string): string {
+  return `auth:${authUserId}`;
 }
 
 function createWallet(user: WebUser, now: string = nowIso()): Wallet {
@@ -92,11 +98,14 @@ export class LocalAccountStore implements AccountStore {
 
   async upsertWechatUser(input: UpsertWechatUserInput): Promise<WebUser> {
     const data = await this.read();
-    const existingIndex = data.users.findIndex((user) => user.wechatOpenId === input.openId);
+    const existingIndex = data.users.findIndex(
+      (user) => user.wechatOpenId === input.openId || Boolean(input.unionId && user.wechatUnionId === input.unionId)
+    );
     const now = nowIso();
     if (existingIndex >= 0) {
       const updated: WebUser = {
         ...data.users[existingIndex],
+        wechatOpenId: input.openId,
         wechatUnionId: input.unionId || data.users[existingIndex].wechatUnionId,
         nickname: input.nickname || data.users[existingIndex].nickname,
         avatarUrl: input.avatarUrl || data.users[existingIndex].avatarUrl,
@@ -112,6 +121,49 @@ export class LocalAccountStore implements AccountStore {
       id,
       tenantId: createWebTenantId(id),
       wechatOpenId: input.openId,
+      wechatUnionId: input.unionId,
+      nickname: input.nickname,
+      avatarUrl: input.avatarUrl,
+      createdAt: now,
+      updatedAt: now,
+    };
+    data.users.push(user);
+    data.wallets.push(createWallet(user, now));
+    await this.write(data);
+    return user;
+  }
+
+  async upsertAuthServiceUser(input: UpsertAuthServiceUserInput): Promise<WebUser> {
+    const data = await this.read();
+    const fallbackOpenId = createAuthServiceWechatOpenId(input.authUserId);
+    const existingIndex = data.users.findIndex(
+      (user) =>
+        user.authUserId === input.authUserId ||
+        user.wechatOpenId === fallbackOpenId ||
+        Boolean(input.unionId && user.wechatUnionId === input.unionId)
+    );
+    const now = nowIso();
+    if (existingIndex >= 0) {
+      const current = data.users[existingIndex];
+      const updated: WebUser = {
+        ...current,
+        authUserId: input.authUserId,
+        wechatUnionId: input.unionId || current.wechatUnionId,
+        nickname: input.nickname || current.nickname,
+        avatarUrl: input.avatarUrl || current.avatarUrl,
+        updatedAt: now,
+      };
+      data.users[existingIndex] = updated;
+      await this.write(data);
+      return updated;
+    }
+
+    const id = uuidv4();
+    const user: WebUser = {
+      id,
+      tenantId: createWebTenantId(id),
+      authUserId: input.authUserId,
+      wechatOpenId: fallbackOpenId,
       wechatUnionId: input.unionId,
       nickname: input.nickname,
       avatarUrl: input.avatarUrl,
@@ -397,15 +449,20 @@ export class MySqlAccountStore implements AccountStore {
   async upsertWechatUser(input: UpsertWechatUserInput): Promise<WebUser> {
     return withMySqlTransaction(async (client) => {
       await ensureMySqlSchema(client);
-      const [existingRows] = await client.execute<UserRow[]>(
-        'SELECT user_json FROM optimizer_users WHERE wechat_openid = ? FOR UPDATE',
-        [input.openId]
-      );
+      const [existingRows] = input.unionId
+        ? await client.execute<UserRow[]>(
+            'SELECT user_json FROM optimizer_users WHERE wechat_openid = ? OR wechat_unionid = ? LIMIT 1 FOR UPDATE',
+            [input.openId, input.unionId]
+          )
+        : await client.execute<UserRow[]>('SELECT user_json FROM optimizer_users WHERE wechat_openid = ? FOR UPDATE', [
+            input.openId,
+          ]);
       const now = nowIso();
       if (existingRows[0]) {
         const current = parseJson<WebUser>(existingRows[0].user_json);
         const updated: WebUser = {
           ...current,
+          wechatOpenId: input.openId,
           wechatUnionId: input.unionId || current.wechatUnionId,
           nickname: input.nickname || current.nickname,
           avatarUrl: input.avatarUrl || current.avatarUrl,
@@ -429,13 +486,77 @@ export class MySqlAccountStore implements AccountStore {
       await client.execute(
         `
           INSERT INTO optimizer_users (
-            id, tenant_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
+            id, tenant_id, auth_user_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           user.id,
           user.tenantId,
+          user.authUserId || null,
+          user.wechatOpenId,
+          user.wechatUnionId || null,
+          JSON.stringify(user),
+          mysqlDateTime(user.createdAt),
+          mysqlDateTime(user.updatedAt),
+        ]
+      );
+      await this.insertWalletRow(client, createWallet(user, now));
+      return user;
+    });
+  }
+
+  async upsertAuthServiceUser(input: UpsertAuthServiceUserInput): Promise<WebUser> {
+    return withMySqlTransaction(async (client) => {
+      await ensureMySqlSchema(client);
+      const fallbackOpenId = createAuthServiceWechatOpenId(input.authUserId);
+      const [existingRows] = input.unionId
+        ? await client.execute<UserRow[]>(
+            'SELECT user_json FROM optimizer_users WHERE auth_user_id = ? OR wechat_openid = ? OR wechat_unionid = ? LIMIT 1 FOR UPDATE',
+            [input.authUserId, fallbackOpenId, input.unionId]
+          )
+        : await client.execute<UserRow[]>(
+            'SELECT user_json FROM optimizer_users WHERE auth_user_id = ? OR wechat_openid = ? LIMIT 1 FOR UPDATE',
+            [input.authUserId, fallbackOpenId]
+          );
+      const now = nowIso();
+      if (existingRows[0]) {
+        const current = parseJson<WebUser>(existingRows[0].user_json);
+        const updated: WebUser = {
+          ...current,
+          authUserId: input.authUserId,
+          wechatUnionId: input.unionId || current.wechatUnionId,
+          nickname: input.nickname || current.nickname,
+          avatarUrl: input.avatarUrl || current.avatarUrl,
+          updatedAt: now,
+        };
+        await this.updateUserRow(client, updated);
+        return updated;
+      }
+
+      const id = uuidv4();
+      const user: WebUser = {
+        id,
+        tenantId: createWebTenantId(id),
+        authUserId: input.authUserId,
+        wechatOpenId: fallbackOpenId,
+        wechatUnionId: input.unionId,
+        nickname: input.nickname,
+        avatarUrl: input.avatarUrl,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await client.execute(
+        `
+          INSERT INTO optimizer_users (
+            id, tenant_id, auth_user_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          user.id,
+          user.tenantId,
+          input.authUserId,
           user.wechatOpenId,
           user.wechatUnionId || null,
           JSON.stringify(user),
@@ -677,12 +798,22 @@ export class MySqlAccountStore implements AccountStore {
       `
         UPDATE optimizer_users SET
           tenant_id = ?,
+          auth_user_id = ?,
+          wechat_openid = ?,
           wechat_unionid = ?,
           user_json = ?,
           updated_at = ?
         WHERE id = ?
       `,
-      [user.tenantId, user.wechatUnionId || null, JSON.stringify(user), mysqlDateTime(user.updatedAt), user.id]
+      [
+        user.tenantId,
+        user.authUserId || null,
+        user.wechatOpenId,
+        user.wechatUnionId || null,
+        JSON.stringify(user),
+        mysqlDateTime(user.updatedAt),
+        user.id,
+      ]
     );
   }
 
@@ -911,15 +1042,20 @@ export class PostgresAccountStore implements AccountStore {
   async upsertWechatUser(input: UpsertWechatUserInput): Promise<WebUser> {
     return withPostgresTransaction(async (client) => {
       await ensurePostgresSchema(client);
-      const result = await client.query<PgUserRow>(
-        'SELECT user_json FROM optimizer_users WHERE wechat_openid = $1 FOR UPDATE',
-        [input.openId]
-      );
+      const result = input.unionId
+        ? await client.query<PgUserRow>(
+            'SELECT user_json FROM optimizer_users WHERE wechat_openid = $1 OR wechat_unionid = $2 LIMIT 1 FOR UPDATE',
+            [input.openId, input.unionId]
+          )
+        : await client.query<PgUserRow>('SELECT user_json FROM optimizer_users WHERE wechat_openid = $1 FOR UPDATE', [
+            input.openId,
+          ]);
       const now = nowIso();
       if (result.rows[0]) {
         const current = parseJson<WebUser>(result.rows[0].user_json);
         const updated: WebUser = {
           ...current,
+          wechatOpenId: input.openId,
           wechatUnionId: input.unionId || current.wechatUnionId,
           nickname: input.nickname || current.nickname,
           avatarUrl: input.avatarUrl || current.avatarUrl,
@@ -943,11 +1079,83 @@ export class PostgresAccountStore implements AccountStore {
       await client.query(
         `
           INSERT INTO optimizer_users (
-            id, tenant_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
+            id, tenant_id, auth_user_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
           )
-          VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
         `,
-        [user.id, user.tenantId, user.wechatOpenId, user.wechatUnionId || null, JSON.stringify(user), user.createdAt, user.updatedAt]
+        [
+          user.id,
+          user.tenantId,
+          user.authUserId || null,
+          user.wechatOpenId,
+          user.wechatUnionId || null,
+          JSON.stringify(user),
+          user.createdAt,
+          user.updatedAt,
+        ]
+      );
+      await this.insertWalletRow(client, createWallet(user, now));
+      return user;
+    });
+  }
+
+  async upsertAuthServiceUser(input: UpsertAuthServiceUserInput): Promise<WebUser> {
+    return withPostgresTransaction(async (client) => {
+      await ensurePostgresSchema(client);
+      const fallbackOpenId = createAuthServiceWechatOpenId(input.authUserId);
+      const result = input.unionId
+        ? await client.query<PgUserRow>(
+            'SELECT user_json FROM optimizer_users WHERE auth_user_id = $1 OR wechat_openid = $2 OR wechat_unionid = $3 LIMIT 1 FOR UPDATE',
+            [input.authUserId, fallbackOpenId, input.unionId]
+          )
+        : await client.query<PgUserRow>(
+            'SELECT user_json FROM optimizer_users WHERE auth_user_id = $1 OR wechat_openid = $2 LIMIT 1 FOR UPDATE',
+            [input.authUserId, fallbackOpenId]
+          );
+      const now = nowIso();
+      if (result.rows[0]) {
+        const current = parseJson<WebUser>(result.rows[0].user_json);
+        const updated: WebUser = {
+          ...current,
+          authUserId: input.authUserId,
+          wechatUnionId: input.unionId || current.wechatUnionId,
+          nickname: input.nickname || current.nickname,
+          avatarUrl: input.avatarUrl || current.avatarUrl,
+          updatedAt: now,
+        };
+        await this.updateUserRow(client, updated);
+        return updated;
+      }
+
+      const id = uuidv4();
+      const user: WebUser = {
+        id,
+        tenantId: createWebTenantId(id),
+        authUserId: input.authUserId,
+        wechatOpenId: fallbackOpenId,
+        wechatUnionId: input.unionId,
+        nickname: input.nickname,
+        avatarUrl: input.avatarUrl,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await client.query(
+        `
+          INSERT INTO optimizer_users (
+            id, tenant_id, auth_user_id, wechat_openid, wechat_unionid, user_json, created_at, updated_at
+          )
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+        `,
+        [
+          user.id,
+          user.tenantId,
+          input.authUserId,
+          user.wechatOpenId,
+          user.wechatUnionId || null,
+          JSON.stringify(user),
+          user.createdAt,
+          user.updatedAt,
+        ]
       );
       await this.insertWalletRow(client, createWallet(user, now));
       return user;
@@ -1168,12 +1376,14 @@ export class PostgresAccountStore implements AccountStore {
       `
         UPDATE optimizer_users SET
           tenant_id = $1,
-          wechat_unionid = $2,
-          user_json = $3::jsonb,
-          updated_at = $4
-        WHERE id = $5
+          auth_user_id = $2,
+          wechat_openid = $3,
+          wechat_unionid = $4,
+          user_json = $5::jsonb,
+          updated_at = $6
+        WHERE id = $7
       `,
-      [user.tenantId, user.wechatUnionId || null, JSON.stringify(user), user.updatedAt, user.id]
+      [user.tenantId, user.authUserId || null, user.wechatOpenId, user.wechatUnionId || null, JSON.stringify(user), user.updatedAt, user.id]
     );
   }
 
@@ -1353,4 +1563,3 @@ export function createAccountStore(): AccountStore {
 }
 
 export const accountStore = createAccountStore();
-
