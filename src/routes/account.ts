@@ -8,6 +8,7 @@ import {
   fetchAuthServiceWechatWidgetConfig,
   getAuthServiceRuntimeConfig,
   isAuthServiceConfigured,
+  pollAuthServiceWechatScan,
 } from '../accounts/auth-service';
 import { verifyWebUserToken } from '../accounts/token';
 import {
@@ -40,6 +41,11 @@ interface AuthServiceWidgetConfigBody {
   state?: string;
   codeChallenge?: string;
   returnTo?: string;
+}
+
+interface AuthServiceScanStatusBody {
+  token?: string;
+  state?: string;
 }
 
 interface CreateRechargeOrderBody {
@@ -233,6 +239,24 @@ router.post('/auth/service/widget-config', async (req: Request, res: Response, n
 
     const widgetConfig = await fetchAuthServiceWechatWidgetConfig({ state, codeChallenge, returnTo });
     res.json(widgetConfig);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/auth/service/scan-status', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!isAuthServiceConfigured()) {
+      throw new HttpError(503, 'AUTH_SERVICE_NOT_CONFIGURED', 'Unified auth service is not configured.');
+    }
+    const body = req.body as AuthServiceScanStatusBody;
+    const token = body.token?.trim();
+    const state = body.state?.trim();
+    if (!token) throw new HttpError(400, 'AUTH_SERVICE_SCAN_TOKEN_REQUIRED', 'Auth service scan token is required.');
+    if (!state) throw new HttpError(400, 'AUTH_SERVICE_STATE_REQUIRED', 'Auth service state is required.');
+
+    const status = await pollAuthServiceWechatScan({ token, state });
+    res.json(status);
   } catch (error) {
     next(error);
   }

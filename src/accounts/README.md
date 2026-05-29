@@ -23,4 +23,4 @@ AUTH_SERVICE_CLIENT_ID=3dugc-web
 AUTH_SERVICE_REDIRECT_URI=https://3dugc.com/auth/callback
 ```
 
-The frontend starts OAuth with PKCE through `https://auth.bujiaban.com/login/3dugc`. On desktop it first asks the local backend to proxy `/login/3dugc/widget-config`, renders WeChat's QR login widget in a modal, then this service exchanges the returned code and binds the local wallet user by `auth_user_id`. Legacy direct WeChat OAuth (`WECHAT_OAUTH_*`) remains as a fallback path.
+The frontend starts OAuth with PKCE through `https://auth.bujiaban.com/login/3dugc`. On desktop it first asks the local backend to proxy `/login/3dugc/widget-config`, renders either the WeChat website widget or the auth-service official-account QR image in a modal, polls scan status when needed, then exchanges the returned code and binds the local wallet user by `auth_user_id`. Legacy direct WeChat OAuth (`WECHAT_OAUTH_*`) remains as a fallback path.

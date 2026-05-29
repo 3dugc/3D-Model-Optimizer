@@ -37,14 +37,26 @@ interface AuthServiceUserInfoResponse {
 }
 
 export interface AuthServiceWechatWidgetConfig {
-  provider: 'wechat_website';
-  mode: 'widget' | 'mock';
+  provider: 'wechat_website' | 'wechat_official_account';
+  mode: 'widget' | 'mock' | 'official_qr';
   appId?: string;
   redirectUri?: string;
   scope?: 'snsapi_login';
   state?: string;
   selfRedirect?: boolean;
   callbackUrl?: string;
+  token?: string;
+  qrImageUrl?: string;
+  expiresIn?: number;
+  pollUrl?: string;
+  pollIntervalMs?: number;
+  error?: string;
+  error_description?: string;
+}
+
+export interface AuthServiceWechatScanStatus {
+  status?: 'pending' | 'confirmed';
+  redirectUrl?: string;
   error?: string;
   error_description?: string;
 }
@@ -178,6 +190,31 @@ export async function fetchAuthServiceWechatWidgetConfig(
       502,
       'AUTH_SERVICE_WIDGET_CONFIG_FAILED',
       body.error_description || body.error || 'Auth service widget config request failed.',
+      { status: response.status }
+    );
+  }
+  return body;
+}
+
+export async function pollAuthServiceWechatScan(
+  input: { token: string; state: string },
+  runtimeConfig = getAuthServiceRuntimeConfig()
+): Promise<AuthServiceWechatScanStatus> {
+  if (!runtimeConfig) {
+    throw new HttpError(503, 'AUTH_SERVICE_NOT_CONFIGURED', 'Unified auth service is not configured.');
+  }
+
+  const url = new URL('/login/wechat/offiaccount/scan-status', runtimeConfig.baseUrl);
+  url.searchParams.set('token', input.token);
+  url.searchParams.set('state', input.state);
+
+  const response = await fetch(url);
+  const body = await readJson<AuthServiceWechatScanStatus>(response);
+  if (!response.ok || body.error) {
+    throw new HttpError(
+      502,
+      'AUTH_SERVICE_SCAN_STATUS_FAILED',
+      body.error_description || body.error || 'Auth service scan status request failed.',
       { status: response.status }
     );
   }

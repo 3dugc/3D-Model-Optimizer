@@ -71,6 +71,7 @@
     .pay-code { display: block; word-break: break-all; color: #6c757d; font-size: 0.68rem; line-height: 1.35; }
     .wechat-login-qr { min-height: 320px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .wechat-login-qr iframe { max-width: 100%; }
+    .wechat-login-qr img { width: min(260px, 100%); height: auto; }
     .wechat-login-status { min-height: 20px; }
 
     .hidden { display: none !important; }
@@ -289,6 +290,7 @@
     let nativePaymentConfigured = false;
     let rechargePollTimer = null;
     let wechatLoginScriptPromise = null;
+    let wechatLoginPollTimer = null;
     let fallbackWechatLoginUrl = '';
     let wireframeMode = false, viewMode = 'split';
     let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
@@ -378,9 +380,10 @@
       }
     }
 
-    async function consumeAuthServiceCallbackFromUrl() {
-      if (window.location.pathname !== '/auth/callback') return false;
-      const params = new URLSearchParams(window.location.search);
+    async function consumeAuthServiceCallbackFromUrl(callbackHref) {
+      const callbackUrl = callbackHref ? new URL(callbackHref, window.location.origin) : window.location;
+      if (callbackUrl.pathname !== '/auth/callback') return false;
+      const params = new URLSearchParams(callbackUrl.search);
       const code = params.get('code');
       const state = params.get('state');
       const error = params.get('error');
@@ -671,11 +674,75 @@
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     }
 
+    function stopWechatLoginPolling() {
+      if (wechatLoginPollTimer) {
+        clearInterval(wechatLoginPollTimer);
+        wechatLoginPollTimer = null;
+      }
+    }
+
+    async function pollOfficialQrLogin(widgetConfig) {
+      const res = await fetch('/api/v1/account/auth/service/scan-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: widgetConfig.token, state: widgetConfig.state }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || '扫码状态同步失败。');
+      if (data.status !== 'confirmed') return false;
+      if (!data.redirectUrl) throw new Error('统一登录中心没有返回授权回调。');
+
+      stopWechatLoginPolling();
+      document.getElementById('wechatLoginStatus').textContent = '扫码成功，正在登录...';
+      const consumed = await consumeAuthServiceCallbackFromUrl(data.redirectUrl);
+      if (!consumed) window.location.href = data.redirectUrl;
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('wechatLoginModal')).hide();
+      return true;
+    }
+
+    function startOfficialQrPolling(widgetConfig) {
+      stopWechatLoginPolling();
+      const status = document.getElementById('wechatLoginStatus');
+      const intervalMs = widgetConfig.pollIntervalMs || 2000;
+      const maxAttempts = Math.max(1, Math.ceil(((widgetConfig.expiresIn || 300) * 1000) / intervalMs));
+      let attempts = 0;
+      wechatLoginPollTimer = setInterval(async () => {
+        attempts += 1;
+        try {
+          await pollOfficialQrLogin(widgetConfig);
+        } catch (error) {
+          stopWechatLoginPolling();
+          status.textContent = error.message || '微信扫码登录失败。';
+          return;
+        }
+        if (attempts >= maxAttempts) {
+          stopWechatLoginPolling();
+          status.textContent = '二维码已过期，请重新打开微信登录。';
+        }
+      }, intervalMs);
+    }
+
     async function renderWechatLoginModal(widgetConfig, fallbackUrl) {
       fallbackWechatLoginUrl = fallbackUrl;
       showWechatLoginModalSkeleton('正在加载微信二维码...');
+      stopWechatLoginPolling();
       if (widgetConfig.mode === 'mock' && widgetConfig.callbackUrl) {
         window.location.href = widgetConfig.callbackUrl;
+        return;
+      }
+      if (widgetConfig.mode === 'official_qr') {
+        if (!widgetConfig.qrImageUrl || !widgetConfig.token || !widgetConfig.state) {
+          throw new Error('统一登录中心没有返回完整的公众号扫码配置。');
+        }
+        const qr = document.getElementById('wechatLoginQr');
+        const status = document.getElementById('wechatLoginStatus');
+        qr.innerHTML = '';
+        const image = document.createElement('img');
+        image.src = widgetConfig.qrImageUrl;
+        image.alt = '微信登录二维码';
+        qr.appendChild(image);
+        status.textContent = '请使用微信扫码登录';
+        startOfficialQrPolling(widgetConfig);
         return;
       }
       if (!widgetConfig.appId || !widgetConfig.redirectUri || !widgetConfig.state) {
@@ -732,6 +799,7 @@
     document.getElementById('wechatLoginFallbackBtn').addEventListener('click', () => {
       if (fallbackWechatLoginUrl) window.location.href = fallbackWechatLoginUrl;
     });
+    document.getElementById('wechatLoginModal').addEventListener('hidden.bs.modal', stopWechatLoginPolling);
 
     document.getElementById('wechatOAuthLoginBtn').addEventListener('click', async () => {
       if (authServiceConfigured && authServiceLoginUrl) {
