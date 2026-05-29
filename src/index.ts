@@ -28,6 +28,7 @@ import {
   cloudJobsRouter,
   billingRouter,
   accountRouter,
+  invoiceRouter,
 } from './routes';
 import { errorHandler, notFoundHandler, authMiddleware, isAuthEnabled } from './middleware';
 import { config } from './config';
@@ -117,6 +118,7 @@ app.use('/api/download', downloadRouter);
 app.use('/api/status', authMiddleware, statusRouter);
 app.use('/api/analyze', analyzeRouter);
 app.use('/api/v1/account', accountRouter);
+app.use('/api/v1/invoices', invoiceRouter);
 app.use('/api/v1', authMiddleware, cloudJobsRouter);
 app.use('/api/v1/payments', authMiddleware, billingRouter);
 

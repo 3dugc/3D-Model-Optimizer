@@ -27,6 +27,9 @@ logs/
 *.log
 npm-debug.log*
 
+# Local runtime/private data
+data/
+
 # Test coverage
 coverage/
 

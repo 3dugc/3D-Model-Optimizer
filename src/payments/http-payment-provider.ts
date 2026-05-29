@@ -1,8 +1,24 @@
-import type { CreateNativePaymentInput, NativePaymentOrder, PaymentNotification, PaymentProvider } from './types';
+import type {
+  CreateNativePaymentInput,
+  CreateWechatInvoiceApplicationInput,
+  NativePaymentOrder,
+  PaymentNotification,
+  PaymentProvider,
+  WechatInvoiceApplicationResult,
+  WechatInvoiceBuyer,
+  WechatInvoiceFile,
+  WechatInvoiceNotification,
+  WechatInvoiceSubMerchantStatus,
+} from './types';
 
 interface PaymentServiceOrderResponse {
   order?: NativePaymentOrder;
   payment?: PaymentNotification;
+  invoiceEvent?: WechatInvoiceNotification;
+  buyer?: WechatInvoiceBuyer;
+  invoiceApplication?: WechatInvoiceApplicationResult;
+  files?: WechatInvoiceFile[];
+  subMerchantStatus?: WechatInvoiceSubMerchantStatus;
   error?: {
     code?: string;
     message?: string;
@@ -43,6 +59,59 @@ export class HttpPaymentProvider implements PaymentProvider {
     });
     if (!body.payment) throw new Error('Payment service response did not include payment.');
     return body.payment;
+  }
+
+  async parseWechatInvoiceNotification(
+    headers: Record<string, unknown>,
+    rawBody: Buffer | string
+  ): Promise<WechatInvoiceNotification> {
+    const rawBodyBase64 = Buffer.isBuffer(rawBody)
+      ? rawBody.toString('base64')
+      : Buffer.from(rawBody, 'utf8').toString('base64');
+    const body = await this.request<PaymentServiceOrderResponse>('/v1/fapiao/notifications/parse', {
+      method: 'POST',
+      body: JSON.stringify({ headers, rawBodyBase64 }),
+    });
+    if (!body.invoiceEvent) throw new Error('Payment service response did not include invoiceEvent.');
+    return body.invoiceEvent;
+  }
+
+  async getWechatInvoiceUserTitle(
+    fapiaoApplyId: string,
+    scene: 'WITH_WECHATPAY' | 'WITHOUT_WECHATPAY' = 'WITH_WECHATPAY'
+  ): Promise<WechatInvoiceBuyer> {
+    const path = `/v1/fapiao/user-title/${encodeURIComponent(fapiaoApplyId)}?scene=${encodeURIComponent(scene)}`;
+    const body = await this.request<PaymentServiceOrderResponse>(path, { method: 'GET' });
+    if (!body.buyer) throw new Error('Payment service response did not include buyer.');
+    return body.buyer;
+  }
+
+  async createWechatInvoiceApplication(
+    input: CreateWechatInvoiceApplicationInput
+  ): Promise<WechatInvoiceApplicationResult> {
+    const body = await this.request<PaymentServiceOrderResponse>('/v1/fapiao/applications', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+    if (!body.invoiceApplication) throw new Error('Payment service response did not include invoiceApplication.');
+    return body.invoiceApplication;
+  }
+
+  async getWechatInvoiceFiles(fapiaoApplyId: string, fapiaoId?: string): Promise<WechatInvoiceFile[]> {
+    const path = `/v1/fapiao/applications/${encodeURIComponent(fapiaoApplyId)}/files${
+      fapiaoId ? `?fapiaoId=${encodeURIComponent(fapiaoId)}` : ''
+    }`;
+    const body = await this.request<PaymentServiceOrderResponse>(path, { method: 'GET' });
+    return body.files || [];
+  }
+
+  async checkWechatInvoiceSubMerchantStatus(subMchid: string): Promise<WechatInvoiceSubMerchantStatus> {
+    const body = await this.request<PaymentServiceOrderResponse>(
+      `/v1/fapiao/merchant/${encodeURIComponent(subMchid)}/check`,
+      { method: 'POST' }
+    );
+    if (!body.subMerchantStatus) throw new Error('Payment service response did not include subMerchantStatus.');
+    return body.subMerchantStatus;
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {

@@ -39,6 +39,8 @@ export interface ServerConfig {
   database: DatabaseConfig;
   /** Billing and payment configuration */
   billing: BillingConfig;
+  /** Recharge invoice configuration */
+  invoice: InvoiceConfig;
   /** Web user authentication configuration */
   webAuth: WebAuthConfig;
 }
@@ -128,6 +130,21 @@ export interface BillingConfig {
   wechatPlatformCertificatePath?: string;
   wechatApiBaseUrl: string;
   wechatSupportFapiao: boolean;
+}
+
+/**
+ * Invoice configuration.
+ */
+export interface InvoiceConfig {
+  enabled: boolean;
+  provider: 'manual' | 'wechat_fapiao';
+  storePath: string;
+  itemName: string;
+  subMchId?: string;
+  taxCode?: string;
+  goodsCategory?: string;
+  taxRateBps?: number;
+  remark?: string;
 }
 
 /**
@@ -337,6 +354,21 @@ export const config: ServerConfig = {
     wechatPlatformCertificatePath: process.env.WECHAT_PAY_PLATFORM_CERT_PATH,
     wechatApiBaseUrl: process.env.WECHAT_PAY_API_BASE_URL || 'https://api.mch.weixin.qq.com',
     wechatSupportFapiao: parseBoolean(process.env.WECHAT_PAY_SUPPORT_FAPIAO, false),
+  },
+
+  // Invoice settings
+  invoice: {
+    enabled: parseBoolean(process.env.INVOICE_ENABLED || process.env.WECHAT_FAPIAO_ENABLED, false),
+    provider: process.env.INVOICE_PROVIDER === 'wechat_fapiao' ? 'wechat_fapiao' : 'manual',
+    storePath: process.env.INVOICE_STORE_PATH || 'data/cloud/invoices.json',
+    itemName: process.env.INVOICE_ITEM_NAME || process.env.WECHAT_FAPIAO_GOODS_NAME || '3D模型优化服务',
+    subMchId: process.env.WECHAT_FAPIAO_SUB_MCH_ID || process.env.WECHAT_PAY_SUB_MCH_ID,
+    taxCode: process.env.WECHAT_FAPIAO_TAX_CODE,
+    goodsCategory: process.env.WECHAT_FAPIAO_GOODS_CATEGORY,
+    taxRateBps: process.env.WECHAT_FAPIAO_TAX_RATE_BPS
+      ? Math.max(0, parseNumber(process.env.WECHAT_FAPIAO_TAX_RATE_BPS, 600))
+      : undefined,
+    remark: process.env.INVOICE_REMARK || process.env.WECHAT_FAPIAO_REMARK,
   },
 
   // Web user auth settings

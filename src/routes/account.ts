@@ -21,6 +21,7 @@ import {
 import type { CreatePaidWebJobInput } from '../accounts/types';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { HttpError } from '../utils/http-error';
+import { invoiceService } from '../invoices';
 
 const router = Router();
 
@@ -47,6 +48,20 @@ interface CreateRechargeOrderBody {
 
 interface SyncRechargeOrderBody {
   outTradeNo?: string;
+}
+
+interface CreateRechargeInvoiceBody {
+  buyer?: {
+    type?: 'INDIVIDUAL' | 'ORGANIZATION';
+    name?: string;
+    taxpayerId?: string;
+    address?: string;
+    telephone?: string;
+    bankName?: string;
+    bankAccount?: string;
+    phoneMasked?: string;
+    emailMasked?: string;
+  };
 }
 
 function buildRelativeRedirectUrl(returnTo: string, params: Record<string, string>): string {
@@ -300,6 +315,54 @@ router.get('/wallet/recharge-orders/:orderId', requireWebUser, async (req: Reque
     next(error);
   }
 });
+
+router.get('/wallet/recharge-orders/:orderId/invoice', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const invoice = await invoiceService.getRechargeOrderInvoice(requireWebUserId(req), req.params.orderId);
+    res.json({ invoice });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/wallet/recharge-orders/:orderId/invoice', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!config.invoice.enabled) {
+      throw new HttpError(503, 'INVOICE_DISABLED', 'Invoice integration is disabled.');
+    }
+    const body = req.body as CreateRechargeInvoiceBody;
+    if (!body.buyer?.type || !body.buyer.name) {
+      throw new HttpError(400, 'INVOICE_BUYER_REQUIRED', 'Invoice buyer information is required.');
+    }
+    const invoice = await invoiceService.createRechargeOrderInvoice(requireWebUserId(req), req.params.orderId, {
+      type: body.buyer.type,
+      name: body.buyer.name,
+      taxpayerId: body.buyer.taxpayerId,
+      address: body.buyer.address,
+      telephone: body.buyer.telephone,
+      bankName: body.buyer.bankName,
+      bankAccount: body.buyer.bankAccount,
+      phoneMasked: body.buyer.phoneMasked,
+      emailMasked: body.buyer.emailMasked,
+    });
+    res.status(201).json({ invoice });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get(
+  '/wallet/recharge-orders/:orderId/invoice/download-url',
+  requireWebUser,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await invoiceService.getRechargeOrderInvoiceDownloadUrl(requireWebUserId(req), req.params.orderId);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
 
 router.post('/wallet/wechat/notify', async (req: Request, res: Response, next: NextFunction) => {
   try {
