@@ -17,6 +17,7 @@ import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger';
 import {
@@ -29,9 +30,10 @@ import {
   billingRouter,
   accountRouter,
   invoiceRouter,
+  metricsRouter,
 } from './routes';
 import { errorHandler, notFoundHandler, authMiddleware, isAuthEnabled } from './middleware';
-import { config } from './config';
+import { config, validateConfig } from './config';
 import { cleanupOldFiles } from './utils/storage';
 import logger from './utils/logger';
 
@@ -39,6 +41,7 @@ declare global {
   namespace Express {
     interface Request {
       rawBody?: Buffer;
+      requestId?: string;
     }
   }
 }
@@ -61,6 +64,13 @@ app.use(helmet({
 
 // Gzip compression for all responses
 app.use(compression());
+
+app.use((req, res, next) => {
+  const requestId = typeof req.headers['x-request-id'] === 'string' ? req.headers['x-request-id'] : uuidv4();
+  req.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  next();
+});
 
 // Request timeout (5 minutes for optimization, covers large models)
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
@@ -119,6 +129,7 @@ app.use('/api/status', authMiddleware, statusRouter);
 app.use('/api/analyze', analyzeRouter);
 app.use('/api/v1/account', accountRouter);
 app.use('/api/v1/invoices', invoiceRouter);
+app.use('/api/v1/metrics', authMiddleware, metricsRouter);
 app.use('/api/v1', authMiddleware, cloudJobsRouter);
 app.use('/api/v1/payments', authMiddleware, billingRouter);
 
@@ -139,10 +150,13 @@ if (require.main === module) {
     logger.info({ host: config.host, port: config.port }, '三维模型优化服务已启动');
     logger.info({ url: `http://${config.host}:${config.port}/api-docs` }, 'API documentation available');
     logger.info({ auth: isAuthEnabled() ? 'enabled' : 'disabled' }, 'Authentication status');
+    for (const warning of validateConfig()) {
+      logger.warn({ warning }, 'Configuration warning');
+    }
 
     // Auto-cleanup temp files older than 1 hour, every 10 minutes
-    const CLEANUP_INTERVAL = 10 * 60 * 1000;
-    const MAX_FILE_AGE = 60 * 60 * 1000;
+    const CLEANUP_INTERVAL = config.cleanupIntervalMs;
+    const MAX_FILE_AGE = config.fileRetentionMs;
     setInterval(async () => {
       try {
         const result = await cleanupOldFiles(MAX_FILE_AGE);

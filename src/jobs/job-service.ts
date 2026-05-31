@@ -8,6 +8,7 @@ import type { CreateCloudJobInput, CloudJob } from './types';
 import { jobStore, type JobStore } from './job-store';
 import { assertTenantObjectPrefix } from './cos-manifest';
 import { HttpError } from '../utils/http-error';
+import { isTerminalJobStatus } from './state-machine';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -68,6 +69,8 @@ export class CloudJobService {
       const existing = await this.store.findByIdempotencyKey(input.tenantId, input.idempotencyKey);
       if (existing) return existing;
     }
+
+    await this.assertCapacityLimits(input.tenantId);
 
     const id = uuidv4();
     const filename = input.filename || 'input.glb';
@@ -186,6 +189,42 @@ export class CloudJobService {
 
   async cancelJob(jobId: string): Promise<CloudJob> {
     return this.store.transition(jobId, 'cancelled', { completedAt: nowIso() });
+  }
+
+  private async assertCapacityLimits(tenantId: string): Promise<void> {
+    const jobs = await this.store.list();
+    if (config.cloud.globalMaxQueuedJobs > 0) {
+      const globalPending = jobs.filter((job) => !isTerminalJobStatus(job.status)).length;
+      if (globalPending >= config.cloud.globalMaxQueuedJobs) {
+        throw new HttpError(429, 'GLOBAL_JOB_LIMIT_REACHED', 'Global queued job limit has been reached.', {
+          limit: config.cloud.globalMaxQueuedJobs,
+        });
+      }
+    }
+
+    if (config.cloud.tenantConcurrentJobLimit > 0) {
+      const tenantActive = jobs.filter((job) => job.tenantId === tenantId && !isTerminalJobStatus(job.status)).length;
+      if (tenantActive >= config.cloud.tenantConcurrentJobLimit) {
+        throw new HttpError(429, 'TENANT_CONCURRENT_JOB_LIMIT_REACHED', 'Tenant concurrent job limit has been reached.', {
+          limit: config.cloud.tenantConcurrentJobLimit,
+          tenantId,
+        });
+      }
+    }
+
+    if (config.cloud.tenantDailyJobLimit > 0) {
+      const startOfDay = new Date();
+      startOfDay.setUTCHours(0, 0, 0, 0);
+      const tenantToday = jobs.filter(
+        (job) => job.tenantId === tenantId && new Date(job.createdAt).getTime() >= startOfDay.getTime()
+      ).length;
+      if (tenantToday >= config.cloud.tenantDailyJobLimit) {
+        throw new HttpError(429, 'TENANT_DAILY_JOB_LIMIT_REACHED', 'Tenant daily job limit has been reached.', {
+          limit: config.cloud.tenantDailyJobLimit,
+          tenantId,
+        });
+      }
+    }
   }
 
   private async publish(job: CloudJob): Promise<void> {

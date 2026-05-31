@@ -78,6 +78,10 @@ export function errorHandler(
 ): void {
   // Log error for debugging
   logger.error({
+    requestId: req.requestId,
+    userId: req.webUserId,
+    tenantId: req.webTenantId,
+    apiPrincipal: req.apiPrincipal?.name,
     name: err.name,
     message: err.message,
     path: req.path,

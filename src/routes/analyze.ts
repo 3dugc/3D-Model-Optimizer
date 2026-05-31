@@ -8,42 +8,21 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import multer from 'multer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
+import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
 import { getDracoModules } from '../components/draco-singleton';
-import { FILE_CONSTRAINTS } from '../utils/file-validator';
-import {
-  convertToGLB,
-  isSupportedFormat,
-  getFileExtension,
-  SUPPORTED_FORMATS,
-} from '../components/format-converter';
+import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
+import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { requireWebUser } from '../middleware';
 
 const router = Router();
 
 // Configure multer
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: FILE_CONSTRAINTS.maxSize },
-  fileFilter: (_req, file, cb) => {
-    const ext = getFileExtension(file.originalname);
-    if (!isSupportedFormat(ext)) {
-      cb(new OptimizationError(ERROR_CODES.INVALID_FILE, `Unsupported format: ${ext}`, {
-        received: ext,
-        expected: SUPPORTED_FORMATS.join(', '),
-      }));
-      return;
-    }
-    cb(null, true);
-  },
-});
+const upload = createModelUpload({ allowZip: true });
 
 /**
  * Model analysis result interface.
@@ -242,71 +221,38 @@ router.post('/', requireWebUser, upload.single('file'), async (req: Request, res
       throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'No file uploaded', { field: 'file' });
     }
 
-    const fileBuffer = req.file.buffer;
     // Decode filename properly for UTF-8
-    const originalFilename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-    const ext = getFileExtension(originalFilename);
-
-    // Create temp directory
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // Save uploaded file
-    const uploadedPath = path.join(tempDir, `input${ext}`);
-    fs.writeFileSync(uploadedPath, fileBuffer);
-
-    let glbPath: string;
-    let converted = false;
-    let conversionTime: number | undefined;
-    let originalFormat = ext.toUpperCase().slice(1);
-
-    // Convert if needed
-    if (ext !== '.glb') {
-      const convertedPath = path.join(tempDir, 'converted.glb');
-      const result = await convertToGLB(uploadedPath, convertedPath, originalFilename);
-
-      if (!result.success) {
-        throw new OptimizationError(ERROR_CODES.INVALID_FILE, `Conversion failed: ${result.error}`, {
-          originalFormat: ext,
-        });
-      }
-
-      glbPath = convertedPath;
-      converted = true;
-      conversionTime = result.conversionTime;
-      originalFormat = result.originalFormat;
-    } else {
-      glbPath = uploadedPath;
-    }
+    const originalFilename = decodeUploadFilename(req.file.originalname);
+    const prepared = await prepareModelInput({
+      inputPath: req.file.path,
+      scratchDir: tempDir,
+      originalFilename,
+      allowZip: true,
+    });
 
     // Read and analyze GLB
     const io = new NodeIO()
-      .registerExtensions([KHRDracoMeshCompression, KHRTextureBasisu])
+      .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu])
       .registerDependencies(await getDracoModules());
 
-    const document = await io.read(glbPath);
-    const analysis = await analyzeDocument(document, originalFilename, fileBuffer.length);
+    const document = await io.read(prepared.inputGlbPath);
+    const analysis = await analyzeDocument(document, originalFilename, req.file.size);
 
     // Update with conversion info
-    analysis.format = originalFormat;
-    analysis.converted = converted;
-    if (conversionTime !== undefined) {
-      analysis.conversionTime = conversionTime;
+    analysis.format = prepared.conversion.originalFormat;
+    analysis.converted = prepared.conversion.converted;
+    if (prepared.conversion.conversionTime !== undefined) {
+      analysis.conversionTime = prepared.conversion.conversionTime;
     }
 
     res.json({ success: true, analysis });
   } catch (error) {
     next(error);
   } finally {
-    // Cleanup temp directory
-    try {
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true });
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
+    await Promise.all([
+      fs.promises.rm(tempDir, { recursive: true, force: true }),
+      cleanupUploadedFile(req.file),
+    ]);
   }
 });
 

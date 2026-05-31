@@ -78,11 +78,39 @@ function buildWechatAccountHint(unionId: string | undefined, openId: string | un
   return undefined;
 }
 
-router.get('/auth/providers', (_req: Request, res: Response) => {
+function normalizeHost(value: string | undefined): string {
+  if (!value) return '';
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.startsWith('[')) return trimmed.slice(1, trimmed.indexOf(']'));
+  if (trimmed === '::1' || trimmed.startsWith('::ffff:')) return trimmed;
+  if ((trimmed.match(/:/g) || []).length > 1) return trimmed;
+  return trimmed.split(':')[0];
+}
+
+function isLoopbackValue(value: string | undefined): boolean {
+  const normalized = normalizeHost(value).replace(/^::ffff:/, '');
+  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
+}
+
+function isLocalDevRequest(req: Request): boolean {
+  if (process.env.NODE_ENV === 'production') return false;
+  const localTestFlag = process.env.LOCAL_TEST_ACCOUNT_ENABLED?.toLowerCase();
+  if (localTestFlag === '0' || localTestFlag === 'false' || localTestFlag === 'off') return false;
+  const host = req.hostname || req.get('host');
+  const remoteAddress = req.ip || req.socket.remoteAddress;
+  return isLoopbackValue(host) && isLoopbackValue(remoteAddress);
+}
+
+router.get('/auth/providers', (req: Request, res: Response) => {
   const authServiceRuntime = getAuthServiceRuntimeConfig();
   const authServiceConfigured = Boolean(authServiceRuntime);
   const wechatPaymentConfigured = Boolean(config.billing.paymentServiceUrl);
+  const localTestAccountEnabled = isLocalDevRequest(req);
   res.json({
+    localTestAccount: {
+      enabled: localTestAccountEnabled,
+      label: localTestAccountEnabled ? '本地测试账户（已充值）' : undefined,
+    },
     authService: {
       configured: authServiceConfigured,
       baseUrl: authServiceRuntime?.baseUrl,
@@ -110,6 +138,18 @@ router.get('/auth/providers', (_req: Request, res: Response) => {
     rechargePackagesCents: config.billing.rechargePackagesCents,
     jobPriceCents: config.billing.defaultJobPriceCents,
   });
+});
+
+router.post('/auth/dev-login', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!isLocalDevRequest(req)) {
+      throw new HttpError(404, 'LOCAL_TEST_ACCOUNT_UNAVAILABLE', 'Local test account is only available from localhost in non-production runs.');
+    }
+    const login = await accountService.loginWithLocalTestAccount();
+    res.status(201).json(login);
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.get('/auth/wechat/authorize', (req: Request, res: Response, next: NextFunction) => {
@@ -387,6 +427,15 @@ router.post('/wallet/jobs', requireWebUser, async (req: Request, res: Response, 
       userId: requireWebUserId(req),
     });
     res.status(202).json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/wallet/jobs/:jobId/cancel', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await accountService.cancelPaidWebJob(requireWebUserId(req), req.params.jobId);
+    res.json(result);
   } catch (error) {
     next(error);
   }

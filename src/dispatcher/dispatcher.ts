@@ -81,11 +81,15 @@ export class ElasticDispatcher {
     const jobs = await this.store.list();
     const backlog = summarizeJobBacklog(jobs, now, this.runtime.taskType);
     const snapshot = await this.scaler.describe();
+    const configuredMaxInstances =
+      config.cloud.globalMaxWorkerSlots > 0
+        ? Math.floor(config.cloud.globalMaxWorkerSlots / Math.max(1, this.runtime.slotsPerInstance))
+        : this.runtime.maxInstances;
     const targetInstances = calculateDesiredInstances({
       requiredSlots: backlog.requiredSlots,
       slotsPerInstance: this.runtime.slotsPerInstance,
       minInstances: this.runtime.minInstances,
-      maxInstances: Math.min(this.runtime.maxInstances, snapshot.maxCapacity),
+      maxInstances: Math.min(this.runtime.maxInstances, configuredMaxInstances, snapshot.maxCapacity),
     });
     const changed = snapshot.desiredCapacity !== targetInstances;
 
@@ -155,4 +159,3 @@ export function createScalingBackend(): ScalingBackend {
   }
   return new LocalScalingBackend();
 }
-

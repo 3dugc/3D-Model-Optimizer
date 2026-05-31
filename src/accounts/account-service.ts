@@ -42,6 +42,12 @@ function assertRechargePackage(amountCents: number): void {
   }
 }
 
+function selectLocalTestRechargeAmountCents(): number {
+  const configured = Number(process.env.LOCAL_TEST_ACCOUNT_RECHARGE_CENTS);
+  if (Number.isFinite(configured) && configured > 0) return Math.floor(configured);
+  return Math.max(config.billing.defaultJobPriceCents, ...config.billing.rechargePackagesCents);
+}
+
 function normalizeWalletChargeError(error: unknown): Error {
   if (error instanceof Error && error.message === 'Insufficient wallet balance') {
     return new HttpError(402, 'INSUFFICIENT_BALANCE', '余额不足，请先充值后再优化。', {
@@ -49,6 +55,21 @@ function normalizeWalletChargeError(error: unknown): Error {
     });
   }
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function mapPaymentTradeStateToOrderStatus(tradeState: string): 'paid' | 'expired' | 'cancelled' | 'refunded' | undefined {
+  switch (tradeState) {
+    case 'SUCCESS':
+      return 'paid';
+    case 'CLOSED':
+    case 'REVOKED':
+    case 'PAYERROR':
+      return 'cancelled';
+    case 'REFUND':
+      return 'refunded';
+    default:
+      return undefined;
+  }
 }
 
 export class AccountService {
@@ -68,6 +89,34 @@ export class AccountService {
     const user = await this.store.upsertAuthServiceUser(input);
     const wallet = await this.store.getWallet(user.id);
     return { user, wallet, token: createWebUserToken(user.id, user.tenantId) };
+  }
+
+  async loginWithLocalTestAccount(): Promise<{ user: WebUser; wallet: Wallet; token: string; rechargeOrder?: RechargeOrder }> {
+    const login = await this.loginWithAuthService({
+      authUserId: 'local-test-account',
+      accountHint: '本地测试账户',
+      nickname: '本地测试账户（已充值）',
+    });
+    if (login.wallet.cashBalanceCents >= config.billing.defaultJobPriceCents) return login;
+
+    const createdAt = nowIso();
+    const order: RechargeOrder = {
+      id: uuidv4(),
+      userId: login.user.id,
+      tenantId: login.user.tenantId,
+      status: 'pending_payment',
+      amountCents: selectLocalTestRechargeAmountCents(),
+      currency: 'CNY',
+      provider: 'wechat_native',
+      outTradeNo: createOutTradeNo('LCL'),
+      codeUrl: 'local-test://prepaid-account',
+      expiresAt: addMinutes(new Date(), 30),
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const createdOrder = await this.store.createRechargeOrder(order);
+    const paid = await this.store.markRechargePaid(createdOrder.id, `local-test-${createdOrder.outTradeNo}`);
+    return { user: login.user, wallet: paid.wallet, token: login.token, rechargeOrder: paid.order };
   }
 
   async requireUser(userId: string): Promise<WebUser> {
@@ -131,9 +180,18 @@ export class AccountService {
     const wallet = await this.getWallet(userId);
     if (order.status === 'paid') return { order, wallet };
     if (order.status !== 'pending_payment') return { order, wallet };
+    if (new Date(order.expiresAt).getTime() <= Date.now()) {
+      const expired = await this.store.transitionRechargeOrder(order.id, 'expired');
+      return { order: expired, wallet };
+    }
 
     const payment = await this.payments.queryOrderByOutTradeNo(order.outTradeNo);
-    if (payment.tradeState !== 'SUCCESS') return { order, wallet };
+    const nextStatus = mapPaymentTradeStateToOrderStatus(payment.tradeState);
+    if (!nextStatus) return { order, wallet };
+    if (nextStatus === 'expired' || nextStatus === 'cancelled' || nextStatus === 'refunded') {
+      const transitioned = await this.store.transitionRechargeOrder(order.id, nextStatus);
+      return { order: transitioned, wallet };
+    }
     if (payment.amountCents !== undefined && payment.amountCents !== order.amountCents) {
       throw new HttpError(409, 'PAYMENT_AMOUNT_MISMATCH', 'WeChat payment amount does not match recharge order amount.');
     }
@@ -158,10 +216,25 @@ export class AccountService {
     return this.markRechargePaid(order.id, transactionId);
   }
 
+  async transitionRechargeOrderByOutTradeNo(
+    outTradeNo: string,
+    status: 'expired' | 'cancelled' | 'refunded'
+  ): Promise<{ order: RechargeOrder; wallet: Wallet }> {
+    const existing = await this.store.findRechargeOrderByOutTradeNo(outTradeNo);
+    if (!existing) throw new HttpError(404, 'RECHARGE_ORDER_NOT_FOUND', 'Recharge order not found.');
+    const order = await this.store.transitionRechargeOrder(existing.id, status);
+    const wallet = await this.getWallet(order.userId);
+    return { order, wallet };
+  }
+
   async handlePaymentNotification(headers: Record<string, unknown>, rawBody: Buffer | string): Promise<{ order: RechargeOrder; wallet: Wallet }> {
     const notification = await this.payments.parsePaymentNotification(headers, rawBody);
-    if (notification.tradeState !== 'SUCCESS') {
+    const nextStatus = mapPaymentTradeStateToOrderStatus(notification.tradeState);
+    if (!nextStatus) {
       throw new HttpError(409, 'PAYMENT_NOT_SUCCESS', `Payment trade state is ${notification.tradeState}.`);
+    }
+    if (nextStatus === 'cancelled' || nextStatus === 'refunded' || nextStatus === 'expired') {
+      return this.transitionRechargeOrderByOutTradeNo(notification.outTradeNo, nextStatus);
     }
     return this.markRechargePaidByOutTradeNo(notification.outTradeNo, notification.transactionId);
   }
@@ -199,6 +272,18 @@ export class AccountService {
 
   async releaseJobCharge(jobId: string, note?: string): Promise<void> {
     await this.store.releaseJobCharge(jobId, note);
+  }
+
+  async cancelPaidWebJob(userId: string, jobId: string): Promise<{ job: CloudJob; wallet: Wallet }> {
+    const job = await this.jobs.getJob(jobId);
+    if (!job || job.userId !== userId) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
+    if (job.status !== 'waiting_upload' && job.status !== 'waiting_payment' && job.status !== 'queued') {
+      throw new HttpError(409, 'JOB_NOT_CANCELLABLE', `Job cannot be cancelled from ${job.status}.`);
+    }
+    const cancelled = await this.jobs.cancelJob(jobId);
+    await this.releaseJobCharge(jobId, 'Job cancelled before processing started.');
+    const wallet = await this.getWallet(userId);
+    return { job: cancelled, wallet };
   }
 
   async getJobCharge(jobId: string): Promise<JobCharge | undefined> {

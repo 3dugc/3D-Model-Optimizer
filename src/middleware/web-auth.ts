@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { accountService } from '../accounts/account-service';
 import { verifyWebUserToken } from '../accounts/token';
 import { HttpError } from '../utils/http-error';
+import { config } from '../config';
 
 declare global {
   namespace Express {
@@ -23,8 +24,11 @@ function getWebToken(req: Request): string | undefined {
   if (typeof webTokenHeader === 'string') return webTokenHeader;
   if (Array.isArray(webTokenHeader) && webTokenHeader[0]) return webTokenHeader[0];
 
-  const queryToken = req.query.web_token;
-  return typeof queryToken === 'string' ? queryToken : undefined;
+  if (config.allowQueryAuthTokens) {
+    const queryToken = req.query.web_token;
+    return typeof queryToken === 'string' ? queryToken : undefined;
+  }
+  return undefined;
 }
 
 export async function requireWebUser(req: Request, _res: Response, next: NextFunction): Promise<void> {

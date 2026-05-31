@@ -31,6 +31,8 @@ docker compose up -d
 
 - Web UI: http://localhost:3000
 - API Docs: http://localhost:3000/api-docs
+- Docker image platform: `linux/amd64`. The optional USDZ/FBX/DAE/KTX toolchain relies on amd64 binaries and wheels; Apple Silicon hosts run this image through Docker emulation.
+- Optional CAD support is enabled by default but capped during image build. Use `--build-arg INSTALL_CAD_SUPPORT=false` to skip STEP/CAD packages, or tune `--build-arg CAD_INSTALL_TIMEOUT_SECONDS=240` for slower networks.
 
 ### Local Development (For the Brave)
 
@@ -158,7 +160,7 @@ Because someone has to be the responsible adult.
 
 ## Tech Stack
 
-- **Runtime**: Node.js 20 / TypeScript
+- **Runtime**: Node.js 20 / TypeScript for the main optimizer API; Node.js 22 for `services/payment-service`
 - **Framework**: Express.js
 - **3D Engine**: @gltf-transform/core + extensions
 - **Compression**: Draco3D, KTX-Software (toktx)

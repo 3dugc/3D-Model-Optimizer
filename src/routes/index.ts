@@ -17,4 +17,5 @@ export { default as cloudJobsRouter } from './cloud-jobs';
 export { default as billingRouter } from './billing';
 export { default as accountRouter } from './account';
 export { default as invoiceRouter } from './invoices';
+export { default as metricsRouter } from './metrics';
 export { storeTask, getTask, updateTask } from './status';

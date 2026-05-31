@@ -14,6 +14,11 @@ export interface BusinessMonitorSnapshot {
   workers: WorkerHeartbeat[];
 }
 
+export interface BusinessMetricsSnapshot {
+  jobs: CloudJob[];
+  workers: WorkerHeartbeat[];
+}
+
 interface JobJsonRow extends RowDataPacket, QueryResultRow {
   job_json: CloudJob | string;
 }
@@ -32,6 +37,13 @@ export async function readBusinessMonitorSnapshot(): Promise<BusinessMonitorSnap
   return readLocalSnapshot();
 }
 
+export async function readBusinessMetricsSnapshot(): Promise<BusinessMetricsSnapshot> {
+  if (config.database.stateStoreProvider === 'mysql') return readMySqlMetricsSnapshot();
+  if (config.database.stateStoreProvider === 'postgres') return readPostgresMetricsSnapshot();
+  const [jobs, workers] = await Promise.all([createJobStore().list(), readLocalWorkers('data/cloud/workers')]);
+  return { jobs, workers };
+}
+
 async function readMySqlSnapshot(): Promise<BusinessMonitorSnapshot> {
   const client = getMySqlPool();
   await ensureMySqlSchema(client);
@@ -47,6 +59,21 @@ async function readMySqlSnapshot(): Promise<BusinessMonitorSnapshot> {
   };
 }
 
+async function readMySqlMetricsSnapshot(): Promise<BusinessMetricsSnapshot> {
+  const client = getMySqlPool();
+  await ensureMySqlSchema(client);
+  const [jobs] = await client.execute<JobJsonRow[]>(
+    'SELECT job_json FROM optimizer_jobs ORDER BY created_at DESC LIMIT 500'
+  );
+  const [workers] = await client.execute<WorkerJsonRow[]>(
+    'SELECT heartbeat_json FROM optimizer_workers ORDER BY last_heartbeat DESC LIMIT 500'
+  );
+  return {
+    jobs: jobs.map((row) => parseJson<CloudJob>(row.job_json)),
+    workers: workers.map((row) => parseJson<WorkerHeartbeat>(row.heartbeat_json)),
+  };
+}
+
 async function readPostgresSnapshot(): Promise<BusinessMonitorSnapshot> {
   const client = getPostgresPool();
   await ensurePostgresSchema(client);
@@ -55,6 +82,21 @@ async function readPostgresSnapshot(): Promise<BusinessMonitorSnapshot> {
   );
   const workers = await client.query<WorkerJsonRow>(
     "SELECT heartbeat_json FROM optimizer_workers WHERE status IN ('starting', 'active', 'draining') ORDER BY last_heartbeat DESC LIMIT 500"
+  );
+  return {
+    jobs: jobs.rows.map((row) => parseJson<CloudJob>(row.job_json)),
+    workers: workers.rows.map((row) => parseJson<WorkerHeartbeat>(row.heartbeat_json)),
+  };
+}
+
+async function readPostgresMetricsSnapshot(): Promise<BusinessMetricsSnapshot> {
+  const client = getPostgresPool();
+  await ensurePostgresSchema(client);
+  const jobs = await client.query<JobJsonRow>(
+    'SELECT job_json FROM optimizer_jobs ORDER BY created_at DESC LIMIT 500'
+  );
+  const workers = await client.query<WorkerJsonRow>(
+    'SELECT heartbeat_json FROM optimizer_workers ORDER BY last_heartbeat DESC LIMIT 500'
   );
   return {
     jobs: jobs.rows.map((row) => parseJson<CloudJob>(row.job_json)),

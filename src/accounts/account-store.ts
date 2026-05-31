@@ -9,6 +9,7 @@ import { ensurePostgresSchema, getPostgresPool, withPostgresTransaction, type Sq
 import type {
   JobCharge,
   RechargeOrder,
+  RechargeOrderStatus,
   UpsertAuthServiceUserInput,
   UpsertWechatUserInput,
   Wallet,
@@ -27,6 +28,7 @@ export interface AccountStore {
   getRechargeOrder(orderId: string): Promise<RechargeOrder | undefined>;
   findRechargeOrderByOutTradeNo(outTradeNo: string): Promise<RechargeOrder | undefined>;
   markRechargePaid(orderId: string, transactionId?: string): Promise<{ order: RechargeOrder; wallet: Wallet }>;
+  transitionRechargeOrder(orderId: string, status: Exclude<RechargeOrderStatus, 'paid'>): Promise<RechargeOrder>;
   holdJobCharge(input: { user: WebUser; jobId: string; amountCents: number }): Promise<{ charge: JobCharge; wallet: Wallet }>;
   settleJobCharge(jobId: string): Promise<JobCharge | undefined>;
   releaseJobCharge(jobId: string, note?: string): Promise<JobCharge | undefined>;
@@ -268,6 +270,24 @@ export class LocalAccountStore implements AccountStore {
     );
     await this.write(data);
     return { order, wallet };
+  }
+
+  async transitionRechargeOrder(orderId: string, status: Exclude<RechargeOrderStatus, 'paid'>): Promise<RechargeOrder> {
+    const data = await this.read();
+    const orderIndex = data.rechargeOrders.findIndex((order) => order.id === orderId);
+    if (orderIndex < 0) throw new Error(`Recharge order not found: ${orderId}`);
+    const current = data.rechargeOrders[orderIndex];
+    if (current.status === status) return current;
+    if (current.status === 'paid' && status !== 'refunded') {
+      throw new Error(`Cannot transition paid recharge order ${orderId} to ${status}`);
+    }
+    if (current.status !== 'pending_payment' && current.status !== 'paid') {
+      throw new Error(`Cannot transition recharge order ${orderId} from ${current.status}`);
+    }
+    const order: RechargeOrder = { ...current, status, updatedAt: nowIso() };
+    data.rechargeOrders[orderIndex] = order;
+    await this.write(data);
+    return order;
   }
 
   async holdJobCharge(input: { user: WebUser; jobId: string; amountCents: number }): Promise<{ charge: JobCharge; wallet: Wallet }> {
@@ -677,6 +697,28 @@ export class MySqlAccountStore implements AccountStore {
         })
       );
       return { order, wallet: nextWallet };
+    });
+  }
+
+  async transitionRechargeOrder(orderId: string, status: Exclude<RechargeOrderStatus, 'paid'>): Promise<RechargeOrder> {
+    return withMySqlTransaction(async (client) => {
+      await ensureMySqlSchema(client);
+      const [rows] = await client.execute<RechargeOrderRow[]>(
+        'SELECT order_json FROM optimizer_recharge_orders WHERE id = ? FOR UPDATE',
+        [orderId]
+      );
+      if (!rows[0]) throw new Error(`Recharge order not found: ${orderId}`);
+      const current = parseJson<RechargeOrder>(rows[0].order_json);
+      if (current.status === status) return current;
+      if (current.status === 'paid' && status !== 'refunded') {
+        throw new Error(`Cannot transition paid recharge order ${orderId} to ${status}`);
+      }
+      if (current.status !== 'pending_payment' && current.status !== 'paid') {
+        throw new Error(`Cannot transition recharge order ${orderId} from ${current.status}`);
+      }
+      const order: RechargeOrder = { ...current, status, updatedAt: nowIso() };
+      await this.updateRechargeOrderRow(client, order);
+      return order;
     });
   }
 
@@ -1263,6 +1305,28 @@ export class PostgresAccountStore implements AccountStore {
         })
       );
       return { order, wallet: nextWallet };
+    });
+  }
+
+  async transitionRechargeOrder(orderId: string, status: Exclude<RechargeOrderStatus, 'paid'>): Promise<RechargeOrder> {
+    return withPostgresTransaction(async (client) => {
+      await ensurePostgresSchema(client);
+      const result = await client.query<PgRechargeOrderRow>(
+        'SELECT order_json FROM optimizer_recharge_orders WHERE id = $1 FOR UPDATE',
+        [orderId]
+      );
+      if (!result.rows[0]) throw new Error(`Recharge order not found: ${orderId}`);
+      const current = parseJson<RechargeOrder>(result.rows[0].order_json);
+      if (current.status === status) return current;
+      if (current.status === 'paid' && status !== 'refunded') {
+        throw new Error(`Cannot transition paid recharge order ${orderId} to ${status}`);
+      }
+      if (current.status !== 'pending_payment' && current.status !== 'paid') {
+        throw new Error(`Cannot transition recharge order ${orderId} from ${current.status}`);
+      }
+      const order: RechargeOrder = { ...current, status, updatedAt: nowIso() };
+      await this.updateRechargeOrderRow(client, order);
+      return order;
     });
   }
 

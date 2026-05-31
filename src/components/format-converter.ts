@@ -8,13 +8,14 @@
  */
 
 import { Document, NodeIO } from '@gltf-transform/core';
+import { KHRMaterialsUnlit } from '@gltf-transform/extensions';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import obj2gltf from 'obj2gltf';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Supported input formats for conversion.
@@ -179,7 +180,7 @@ async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<v
   document.getRoot().setDefaultScene(scene);
 
   // Write GLB
-  const io = new NodeIO();
+  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
   await io.write(outputPath, document);
 }
 
@@ -188,7 +189,7 @@ async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<v
  */
 async function isCollada2gltfAvailable(): Promise<boolean> {
   try {
-    await execAsync('COLLADA2GLTF --help');
+    await execFileAsync('COLLADA2GLTF', ['--help']);
     return true;
   } catch {
     return false;
@@ -213,13 +214,10 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
   const outputName = path.basename(outputPath, '.glb');
   const tempOutput = path.join(outputDir, `${outputName}.gltf`);
   
-  await execAsync(
-    `COLLADA2GLTF -i "${inputPath}" -o "${tempOutput}"`,
-    { timeout: 120000 }
-  );
+  await execFileAsync('COLLADA2GLTF', ['-i', inputPath, '-o', tempOutput], { timeout: 120000 });
 
   // Convert GLTF to GLB
-  const io = new NodeIO();
+  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
   const document = await io.read(tempOutput);
   await io.write(outputPath, document);
 
@@ -239,7 +237,7 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
  */
 async function isStepConverterAvailable(): Promise<boolean> {
   try {
-    await execAsync('python3 -c "import trimesh; print(\'ok\')"');
+    await execFileAsync('python3', ['-c', "import trimesh; print('ok')"]);
     return true;
   } catch {
     return false;
@@ -266,11 +264,9 @@ import json
 import trimesh
 
 try:
-    # Load STEP file using trimesh (uses OpenCASCADE via cadquery if available)
-    mesh = trimesh.load("${inputPath.replace(/\\/g, '\\\\')}")
+    mesh = trimesh.load(sys.argv[1])
     
-    # Export to GLB
-    mesh.export("${outputPath.replace(/\\/g, '\\\\')}", file_type='glb')
+    mesh.export(sys.argv[2], file_type='glb')
     
     print(json.dumps({"success": True}))
 except Exception as e:
@@ -278,7 +274,10 @@ except Exception as e:
     sys.exit(1)
 `;
 
-  const result = await execAsync(`python3 -c '${pythonScript}'`, { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
+  const result = await execFileAsync('python3', ['-c', pythonScript, inputPath, outputPath], {
+    timeout: 300000,
+    maxBuffer: 50 * 1024 * 1024,
+  });
   
   let parseResult;
   try {
@@ -306,24 +305,24 @@ async function convertCADtoGLB(inputPath: string, outputPath: string, format: st
     );
   }
 
-  const escapedInput = inputPath.replace(/\\/g, '\\\\');
-  const escapedOutput = outputPath.replace(/\\/g, '\\\\');
-
   const pythonScript = `
 import sys
 import json
 import trimesh
 
 try:
-    mesh = trimesh.load("${escapedInput}")
-    mesh.export("${escapedOutput}", file_type='glb')
+    mesh = trimesh.load(sys.argv[1])
+    mesh.export(sys.argv[2], file_type='glb')
     print(json.dumps({"success": True}))
 except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}))
     sys.exit(1)
 `;
 
-  const result = await execAsync("python3 -c '" + pythonScript + "'", { timeout: 300000, maxBuffer: 50 * 1024 * 1024 });
+  const result = await execFileAsync('python3', ['-c', pythonScript, inputPath, outputPath], {
+    timeout: 300000,
+    maxBuffer: 50 * 1024 * 1024,
+  });
 
   let parseResult;
   try {
@@ -342,7 +341,7 @@ except Exception as e:
  */
 async function isFbx2gltfAvailable(): Promise<boolean> {
   try {
-    await execAsync('FBX2glTF --help');
+    await execFileAsync('FBX2glTF', ['--help']);
     return true;
   } catch {
     return false;
@@ -358,7 +357,7 @@ async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<v
   if (!fbxAvailable) {
     throw new Error(
       'FBX conversion requires FBX2glTF binary. ' +
-      'Run in Docker or download from: https://github.com/facebookincubator/FBX2glTF/releases'
+      'Run in Docker or download from: https://github.com/godotengine/FBX2glTF/releases'
     );
   }
 
@@ -367,10 +366,9 @@ async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<v
   const outputDir = path.dirname(outputPath);
   const outputName = path.basename(outputPath, '.glb');
   
-  await execAsync(
-    `FBX2glTF -i "${inputPath}" -o "${path.join(outputDir, outputName)}" --binary`,
-    { timeout: 120000 }
-  );
+  await execFileAsync('FBX2glTF', ['-i', inputPath, '-o', path.join(outputDir, outputName), '--binary'], {
+    timeout: 120000,
+  });
 
   // FBX2glTF adds _out suffix, rename if needed
   const expectedOutput = path.join(outputDir, `${outputName}_out.glb`);
@@ -384,7 +382,7 @@ async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<v
  */
 async function isUsdAvailable(): Promise<boolean> {
   try {
-    await execAsync('python3 -c "from pxr import Usd; print(\'ok\')"');
+    await execFileAsync('python3', ['-c', "from pxr import Usd; print('ok')"]);
     return true;
   } catch {
     return false;
@@ -410,10 +408,10 @@ async function convertUSDZtoGLB(inputPath: string, outputPath: string): Promise<
     throw new Error('USDZ conversion script not found: ' + scriptPath);
   }
 
-  const result = await execAsync(
-    `python3 "${scriptPath}" "${inputPath}" "${outputPath}"`,
-    { timeout: 300000, maxBuffer: 10 * 1024 * 1024 }
-  );
+  const result = await execFileAsync('python3', [scriptPath, inputPath, outputPath], {
+    timeout: 300000,
+    maxBuffer: 10 * 1024 * 1024,
+  });
 
   let parseResult;
   try {
@@ -446,7 +444,7 @@ async function convertOBJtoGLB(inputPath: string, outputPath: string): Promise<v
  * Convert GLTF to GLB.
  */
 async function convertGLTFtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const io = new NodeIO();
+  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
   const document = await io.read(inputPath);
   await io.write(outputPath, document);
 }

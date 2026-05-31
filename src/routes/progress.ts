@@ -9,45 +9,23 @@
  */
 
 import { Router, Request, Response } from 'express';
-import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
-import { validateGlbBuffer, FILE_CONSTRAINTS } from '../utils/file-validator';
 import { getResultFilePath } from '../utils/storage';
-import { executePipeline } from '../components/optimization-pipeline';
-import {
-  convertToGLB,
-  isSupportedFormat,
-  getFileExtension,
-  SUPPORTED_FORMATS,
-} from '../components/format-converter';
+import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
+import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
+import { runPaidOptimization } from '../components/paid-optimization-runner';
 import { OptimizationOptions, OPTIMIZATION_PRESETS, PresetName } from '../models/options';
-import { OptimizationError, ERROR_CODES } from '../models/error';
+import { OptimizationError } from '../models/error';
 import { validateOptions } from '../utils/options-validator';
-import { config } from '../config';
-import { accountService } from '../accounts/account-service';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { isHttpError } from '../utils/http-error';
 import logger from '../utils/logger';
 
 const router = Router();
 
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: { fileSize: FILE_CONSTRAINTS.maxSize },
-  fileFilter: (_req, file, cb) => {
-    const ext = getFileExtension(file.originalname);
-    if (!isSupportedFormat(ext)) {
-      cb(new OptimizationError(ERROR_CODES.INVALID_FILE, `Unsupported format: ${ext}`, {
-        received: ext, expected: SUPPORTED_FORMATS.join(', '),
-      }));
-      return;
-    }
-    cb(null, true);
-  },
-});
+const upload = createModelUpload({ allowZip: true });
 
 /**
  * POST /api/optimize/stream
@@ -70,22 +48,8 @@ router.post(
     };
 
     const userId = requireWebUserId(req);
-    let taskId: string | undefined;
-    let chargeHeld = false;
-    let chargeSettled = false;
-
-    const releaseHeldCharge = async (note = 'Optimization failed'): Promise<void> => {
-      if (!taskId || !chargeHeld || chargeSettled) return;
-      await accountService.releaseJobCharge(taskId, note).catch((releaseError) => {
-        logger.warn({ taskId, error: releaseError }, 'Failed to release optimization charge');
-      });
-    };
-
-    const sendFailure = async (code: string, message: string): Promise<void> => {
-      await releaseHeldCharge(message);
-      sendEvent('error', { code, message });
-      res.end();
-    };
+    const taskId = uuidv4();
+    const tempDir = path.join('./temp', taskId);
 
     const toErrorEvent = (error: unknown): { code: string; message: string } => {
       if (error instanceof OptimizationError) return { code: error.code, message: error.message };
@@ -103,63 +67,32 @@ router.post(
         return;
       }
 
-      const fileBuffer = req.file.buffer;
-      const originalFilename = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
-      const ext = getFileExtension(originalFilename);
-      taskId = uuidv4();
-
-      const holdCharge = async (): Promise<void> => {
-        if (chargeHeld || !taskId) return;
-        const held = await accountService.holdOptimizationCharge(userId, taskId);
-        chargeHeld = true;
-        sendEvent('wallet', {
-          wallet: held.wallet,
-          priceCents: config.billing.defaultJobPriceCents,
-          status: 'held',
-        });
-      };
+      const originalFilename = decodeUploadFilename(req.file.originalname);
 
       sendEvent('progress', { step: 'upload', status: 'done', message: '文件上传完成' });
-
-      // Create temp directory
-      const tempDir = path.join('./temp', taskId);
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-
-      const uploadedFilePath = path.join(tempDir, `input${ext}`);
-      fs.writeFileSync(uploadedFilePath, fileBuffer);
-
-      const convertedGlbPath = path.join(tempDir, 'converted.glb');
-      let inputGlbPath: string;
-      let conversionInfo = { converted: false, originalFormat: ext.toUpperCase().slice(1) } as {
-        converted: boolean; originalFormat: string; conversionTime?: number;
-      };
-
-      // Convert if needed
-      if (ext !== '.glb') {
-        await holdCharge();
-        sendEvent('progress', { step: 'convert', status: 'start', message: `转换 ${ext.toUpperCase()} → GLB` });
-        const conversionResult = await convertToGLB(uploadedFilePath, convertedGlbPath, originalFilename);
-        if (!conversionResult.success) {
-          await sendFailure('CONVERSION_FAILED', conversionResult.error || '格式转换失败');
-          return;
-        }
-        inputGlbPath = convertedGlbPath;
-        conversionInfo = { converted: true, originalFormat: conversionResult.originalFormat, conversionTime: conversionResult.conversionTime };
-        sendEvent('progress', { step: 'convert', status: 'done', message: '格式转换完成', duration: conversionResult.conversionTime });
-      } else {
-        const validation = validateGlbBuffer(fileBuffer);
-        if (!validation.isValid) {
-          await sendFailure('INVALID_FILE', validation.errors.join('; '));
-          return;
-        }
-        await holdCharge();
-        inputGlbPath = uploadedFilePath;
-      }
+      sendEvent('progress', { step: 'prepare', status: 'start', message: '准备模型文件' });
+      const prepared = await prepareModelInput({
+        inputPath: req.file.path,
+        scratchDir: tempDir,
+        originalFilename,
+        allowZip: true,
+      });
+      sendEvent('progress', {
+        step: prepared.conversion.converted ? 'convert' : 'prepare',
+        status: 'done',
+        message: prepared.conversion.converted ? '格式转换完成' : '模型校验完成',
+        duration: prepared.conversion.conversionTime,
+      });
 
       // Parse options (preset or custom)
       let options: OptimizationOptions = {};
       const presetName = req.body.preset as PresetName | undefined;
-      if (presetName && OPTIMIZATION_PRESETS[presetName]) {
+      if (presetName) {
+        if (!OPTIMIZATION_PRESETS[presetName]) {
+          sendEvent('error', { code: 'INVALID_OPTIONS', message: `Unknown preset: ${presetName}` });
+          res.end();
+          return;
+        }
         options = { ...OPTIMIZATION_PRESETS[presetName] };
       }
       if (req.body.options) {
@@ -167,7 +100,8 @@ router.post(
           const custom = JSON.parse(req.body.options);
           options = presetName ? { ...options, ...custom } : custom;
         } catch {
-          await sendFailure('INVALID_OPTIONS', 'Invalid options JSON');
+          sendEvent('error', { code: 'INVALID_OPTIONS', message: 'Invalid options JSON' });
+          res.end();
           return;
         }
       }
@@ -175,52 +109,61 @@ router.post(
       const { sanitized } = validateOptions(options);
       options = sanitized;
 
-      const outputPath = getResultFilePath(taskId);
-
-      // Execute pipeline with progress callback
-      const result = await executePipeline(inputGlbPath, outputPath, options, (event) => {
-        const stepNames: Record<string, string> = {
-          'repair-input': '输入修复',
-          'clean': '资源清理',
-          'merge': 'Mesh 合并',
-          'simplify': '网格减面',
-          'quantize': '顶点量化',
-          'draco': 'Draco 压缩',
-          'texture': '纹理压缩',
-          'repair-output': '输出修复',
-        };
-        sendEvent('progress', {
-          step: event.step,
-          stepName: stepNames[event.step] || event.step,
-          status: event.status,
-          index: event.index,
-          total: event.total,
-          duration: event.duration,
-          error: event.error,
-        });
+      const paid = await runPaidOptimization({
+        taskId,
+        userId,
+        inputGlbPath: prepared.inputGlbPath,
+        outputPath: getResultFilePath(taskId),
+        options,
+        metadata: {
+          taskId,
+          originalFilename,
+          presetName,
+          options: options as Record<string, unknown>,
+          conversion: prepared.conversion,
+        },
+        onWallet: (event) => sendEvent('wallet', event),
+        onProgress: (event) => {
+          const stepNames: Record<string, string> = {
+            'repair-input': '输入修复',
+            'clean': '资源清理',
+            'merge': 'Mesh 合并',
+            'simplify': '网格减面',
+            'quantize': '顶点量化',
+            'draco': 'Draco 压缩',
+            'texture': '纹理压缩',
+            'repair-output': '输出修复',
+          };
+          sendEvent('progress', {
+            step: event.step,
+            stepName: stepNames[event.step] || event.step,
+            status: event.status,
+            index: event.index,
+            total: event.total,
+            duration: event.duration,
+            error: event.error,
+          });
+        },
       });
 
-      result.taskId = taskId;
-      result.downloadUrl = `/api/download/${taskId}`;
-
-      await accountService.settleJobCharge(taskId);
-      chargeSettled = true;
-      const wallet = await accountService.getWallet(userId);
-      sendEvent('wallet', {
-        wallet,
-        priceCents: config.billing.defaultJobPriceCents,
-        status: 'charged',
+      sendEvent('result', {
+        ...paid.result,
+        conversion: prepared.conversion,
+        wallet: paid.wallet,
+        ...(paid.chargeStatus === 'released' && { chargeStatus: 'released' }),
       });
-
-      sendEvent('result', { ...result, conversion: conversionInfo, wallet });
-      sendEvent('done', { taskId });
+      sendEvent('done', { taskId, success: paid.result.success });
       res.end();
     } catch (error) {
       const event = toErrorEvent(error);
       logger.error({ error: event.message }, 'SSE optimize failed');
-      await releaseHeldCharge(event.message);
       sendEvent('error', event);
       res.end();
+    } finally {
+      await Promise.all([
+        fs.promises.rm(tempDir, { recursive: true, force: true }),
+        cleanupUploadedFile(req.file),
+      ]);
     }
   }
 );

@@ -34,6 +34,7 @@ class RecordingQueue implements QueueProvider {
 
 class PaidPaymentProvider implements PaymentProvider {
   readonly outTradeNos: string[] = [];
+  tradeState = 'SUCCESS';
 
   async createNativeOrder(input: CreateNativePaymentInput): Promise<{ codeUrl: string }> {
     this.outTradeNos.push(input.outTradeNo);
@@ -44,7 +45,7 @@ class PaidPaymentProvider implements PaymentProvider {
     return {
       outTradeNo,
       transactionId: `wx-${outTradeNo}`,
-      tradeState: 'SUCCESS',
+      tradeState: this.tradeState,
       amountCents: 800,
     };
   }
@@ -134,6 +135,32 @@ describe('account wallet billing', () => {
     expect(wallet.frozenCents).toBe(0);
   });
 
+  it('releases held balance when a queued paid job is cancelled before processing', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const jobStore = new LocalJobStore(await tempFile('jobs.json'));
+    const queue = new RecordingQueue();
+    const service = new AccountService(accountStore, new CloudJobService(jobStore, queue));
+
+    const login = await service.loginWithWechat({ openId: 'openid-cancel' });
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 800,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    await service.markRechargePaid(order.id, 'wx-transaction-cancel');
+
+    const paidJob = await service.createPaidWebJob({
+      userId: login.user.id,
+      filename: 'source.glb',
+    });
+    const cancelled = await service.cancelPaidWebJob(login.user.id, paidJob.job.id);
+
+    expect(cancelled.job.status).toBe('cancelled');
+    expect(cancelled.wallet.cashBalanceCents).toBe(800);
+    expect(cancelled.wallet.frozenCents).toBe(0);
+  });
+
   it('syncs a paid WeChat recharge order by querying the provider', async () => {
     const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
     const payments = new PaidPaymentProvider();
@@ -152,6 +179,25 @@ describe('account wallet billing', () => {
     expect(synced.order.status).toBe('paid');
     expect(synced.order.transactionId).toBe(`wx-${order.outTradeNo}`);
     expect(synced.wallet.cashBalanceCents).toBe(800);
+  });
+
+  it('marks pending recharge orders as cancelled when the payment provider reports CLOSED', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const payments = new PaidPaymentProvider();
+    payments.tradeState = 'CLOSED';
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()), payments);
+    const login = await service.loginWithWechat({ openId: 'openid-closed' });
+
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 800,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    const synced = await service.syncRechargeOrder(login.user.id, order.id);
+
+    expect(synced.order.status).toBe('cancelled');
+    expect(synced.wallet.cashBalanceCents).toBe(0);
   });
 
   it('holds and settles one yuan for a direct web optimization', async () => {
@@ -174,6 +220,45 @@ describe('account wallet billing', () => {
     const settledWallet = await service.getWallet(login.user.id);
     expect(settledWallet.cashBalanceCents).toBe(700);
     expect(settledWallet.frozenCents).toBe(0);
+  });
+
+  it('releases held balance when a direct web optimization fails', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()));
+    const login = await service.loginWithWechat({ openId: 'openid-direct-failed' });
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 800,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    await service.markRechargePaid(order.id, 'wx-transaction-direct-failed');
+
+    const held = await service.holdOptimizationCharge(login.user.id, 'direct-failed-task-id');
+    expect(held.wallet.cashBalanceCents).toBe(700);
+    expect(held.wallet.frozenCents).toBe(100);
+
+    await service.releaseJobCharge('direct-failed-task-id', 'pipeline failed');
+    const releasedWallet = await service.getWallet(login.user.id);
+    expect(releasedWallet.cashBalanceCents).toBe(800);
+    expect(releasedWallet.frozenCents).toBe(0);
+  });
+
+  it('logs in the local test account with a paid recharge once', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const service = new AccountService(accountStore, new CloudJobService(new LocalJobStore(await tempFile('jobs.json')), new RecordingQueue()));
+
+    const firstLogin = await service.loginWithLocalTestAccount();
+    const secondLogin = await service.loginWithLocalTestAccount();
+    const ledger = await service.listLedger(firstLogin.user.id);
+
+    expect(firstLogin.user.authUserId).toBe('local-test-account');
+    expect(firstLogin.wallet.cashBalanceCents).toBe(8800);
+    expect(firstLogin.rechargeOrder?.status).toBe('paid');
+    expect(secondLogin.user.id).toBe(firstLogin.user.id);
+    expect(secondLogin.wallet.cashBalanceCents).toBe(8800);
+    expect(secondLogin.rechargeOrder).toBeUndefined();
+    expect(ledger.filter((entry) => entry.type === 'recharge_paid')).toHaveLength(1);
   });
 
   it('binds unified auth users by auth user id and merges later WeChat unionid logins', async () => {

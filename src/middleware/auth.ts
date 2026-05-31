@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { timingSafeEqual } from 'crypto';
+import { config } from '../config';
 
 export interface ApiPrincipal {
   name: string;
@@ -44,8 +45,10 @@ function getRequestToken(req: Request): string | undefined {
   if (typeof headerKey === 'string') return headerKey;
   if (Array.isArray(headerKey) && headerKey[0]) return headerKey[0];
 
-  const queryKey = req.query.api_key;
-  if (typeof queryKey === 'string') return queryKey;
+  if (config.allowQueryAuthTokens) {
+    const queryKey = req.query.api_key;
+    if (typeof queryKey === 'string') return queryKey;
+  }
   return undefined;
 }
 
@@ -126,7 +129,9 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction):
     success: false,
     error: {
       code: 'UNAUTHORIZED',
-      message: 'API key required. Use Authorization: Bearer <key>, x-api-key header, or ?api_key= query param.',
+      message: config.allowQueryAuthTokens
+        ? 'API key required. Use Authorization: Bearer <key>, x-api-key header, or ?api_key= query param.'
+        : 'API key required. Use Authorization: Bearer <key> or x-api-key header.',
     },
   });
 };
