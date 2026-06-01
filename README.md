@@ -31,6 +31,8 @@ docker compose up -d
 
 - Web UI: http://localhost:3000
 - API Docs: http://localhost:3000/api-docs
+- Docker image platform: `linux/amd64`. The optional USDZ/FBX/DAE/KTX toolchain relies on amd64 binaries and wheels; Apple Silicon hosts run this image through Docker emulation.
+- Optional CAD support is enabled by default but capped during image build. Use `--build-arg INSTALL_CAD_SUPPORT=false` to skip STEP/CAD packages, or tune `--build-arg CAD_INSTALL_TIMEOUT_SECONDS=240` for slower networks.
 
 ### Local Development (For the Brave)
 
@@ -158,7 +160,7 @@ Because someone has to be the responsible adult.
 
 ## Tech Stack
 
-- **Runtime**: Node.js 20 / TypeScript
+- **Runtime**: Node.js 20 / TypeScript for the main optimizer API; Node.js 22 for `services/payment-service`
 - **Framework**: Express.js
 - **3D Engine**: @gltf-transform/core + extensions
 - **Compression**: Draco3D, KTX-Software (toktx)
@@ -184,14 +186,36 @@ src/
 │   ├── draco-compressor.ts        # Draco compression
 │   └── texture-compressor.ts      # Texture compression
 ├── routes/              # API routes
+├── cloud/               # Object storage and queue provider contracts
+├── jobs/                # Async job store, state machine, service
+├── database/            # Shared MySQL/Postgres state stores and migrations
+├── tasks/               # Extensible heavy task registry and model.optimize handler
+├── worker/              # Docker worker runtime
+├── billing/             # WeChat Native/mock billing contracts
+├── callbacks/           # Customer callback signing/delivery helpers
 ├── middleware/           # Error handling, API Key auth
 ├── models/              # Data models
 ├── utils/               # File validation, storage, logging
 └── config/              # Swagger config
 public/                  # Web UI
 scripts/                 # Python conversion scripts
-tests/                   # Unit tests (226 of them, we're thorough)
+tests/                   # Unit tests (231 of them, we're thorough)
 ```
+
+## Cloud Architecture Roadmap
+
+The async Tencent Cloud version is specified separately so the current local service can remain stable while the cloud runtime is built.
+
+- Architecture: [docs/tencent-cloud-architecture.md](docs/tencent-cloud-architecture.md)
+- Implementation guide: [docs/heavy-task-platform-implementation.md](docs/heavy-task-platform-implementation.md)
+- Next tasks: [docs/heavy-task-platform-next-tasks.md](docs/heavy-task-platform-next-tasks.md)
+- Deployment checklist: [docs/tencent-cloud-deployment-checklist.md](docs/tencent-cloud-deployment-checklist.md)
+- Spec: [.kiro/specs/tencent-cloud-elastic-optimizer](.kiro/specs/tencent-cloud-elastic-optimizer)
+- Local async runtime: `POST /api/v1/jobs`, `POST /api/v1/jobs/:jobId/complete-upload`, `GET /api/v1/jobs/:jobId`, `GET /api/v1/jobs/:jobId/result-url`
+- Local worker: `npm run worker` or `node dist/worker/run-worker.js`
+- Docker local cloud stack: `docker compose -f docker-compose.cloud.yml up --build`
+- Shared state store: set `STATE_STORE_PROVIDER=mysql` or `STATE_STORE_PROVIDER=postgres` with `DATABASE_URL` to make API, workers, orders and worker heartbeats use a shared database instead of local JSON files.
+- Runtime template: `.env.cloud.example`
 
 ## Testing
 
@@ -199,7 +223,7 @@ tests/                   # Unit tests (226 of them, we're thorough)
 npm test
 ```
 
-226 tests. All passing. We checked.
+231 tests. All passing. We checked.
 
 ## License
 

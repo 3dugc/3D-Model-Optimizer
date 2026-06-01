@@ -10,7 +10,7 @@
 
 import { Document, Texture } from '@gltf-transform/core';
 import { KHRTextureBasisu } from '@gltf-transform/extensions';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -25,7 +25,7 @@ import {
 import { TextureStats, TextureDetail } from '../models/result';
 import { ERROR_CODES } from '../models/error';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Custom error class for optimization errors.
@@ -80,7 +80,7 @@ export { _TEXTURE_SLOTS as TEXTURE_SLOTS };
  */
 async function isToktxAvailable(): Promise<boolean> {
   try {
-    await execAsync('toktx --version');
+    await execFileAsync('toktx', ['--version']);
     return true;
   } catch {
     return false;
@@ -163,22 +163,20 @@ async function compressWithToktx(
     // Write input image
     await fs.writeFile(inputPath, imageData);
 
-    // Build toktx command
-    let cmd = `toktx --t2 --encode ${mode.toLowerCase()}`;
+    const args = ['--t2', '--encode', mode.toLowerCase()];
     
     if (mode === 'ETC1S') {
       // ETC1S quality: 1-255, map to clevel 1-5
       const clevel = Math.max(1, Math.min(5, Math.round(quality / 51)));
-      cmd += ` --clevel ${clevel}`;
+      args.push('--clevel', String(clevel));
     } else {
       // UASTC quality: 0-4
-      cmd += ` --uastc_quality ${quality}`;
-      cmd += ' --zcmp 19'; // Zstandard compression for UASTC
+      args.push('--uastc_quality', String(quality));
+      args.push('--zcmp', '19'); // Zstandard compression for UASTC
     }
 
-    cmd += ` "${outputPath}" "${inputPath}"`;
-
-    await execAsync(cmd, { timeout: 60000 });
+    args.push(outputPath, inputPath);
+    await execFileAsync('toktx', args, { timeout: 60000 });
 
     // Read compressed output
     const compressedData = await fs.readFile(outputPath);

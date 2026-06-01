@@ -11,6 +11,7 @@ import { Request, Response, NextFunction } from 'express';
 import { OptimizationError, ERROR_CODES, ErrorResponse, ErrorCode } from '../models/error';
 import multer from 'multer';
 import logger from '../utils/logger';
+import { isHttpError } from '../utils/http-error';
 
 /**
  * HTTP status codes for different error types.
@@ -77,6 +78,10 @@ export function errorHandler(
 ): void {
   // Log error for debugging
   logger.error({
+    requestId: req.requestId,
+    userId: req.webUserId,
+    tenantId: req.webTenantId,
+    apiPrincipal: req.apiPrincipal?.name,
     name: err.name,
     message: err.message,
     path: req.path,
@@ -88,6 +93,12 @@ export function errorHandler(
     const statusCode = getStatusCode(err.code);
     const response = createErrorResponse(err.code, err.message, err.details);
     res.status(statusCode).json(response);
+    return;
+  }
+
+  if (isHttpError(err)) {
+    const response = createErrorResponse(err.code, err.message, err.details);
+    res.status(err.statusCode).json(response);
     return;
   }
 

@@ -13,7 +13,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
+import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -117,8 +117,44 @@ async function createTestDocument(): Promise<Document> {
 async function createTestGlbFile(filePath: string): Promise<void> {
   const document = await createTestDocument();
   const io = new NodeIO()
-    .registerExtensions([KHRDracoMeshCompression, KHRTextureBasisu]);
+    .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu]);
   await io.write(filePath, document);
+}
+
+/**
+ * Create a test GLB file with KHR_materials_unlit.
+ */
+async function createUnlitTestGlbFile(filePath: string): Promise<void> {
+  const document = await createTestDocument();
+  const unlitExtension = document.createExtension(KHRMaterialsUnlit);
+  const material = document.getRoot().listMaterials()[0]!;
+  material.setExtension(KHRMaterialsUnlit.EXTENSION_NAME, unlitExtension.createUnlit());
+
+  const io = new NodeIO()
+    .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu]);
+  await io.write(filePath, document);
+}
+
+/**
+ * Read the JSON chunk from a GLB file.
+ */
+function readGlbJson(filePath: string): any {
+  const buffer = fs.readFileSync(filePath);
+  let offset = 12;
+
+  while (offset < buffer.length) {
+    const chunkLength = buffer.readUInt32LE(offset);
+    const chunkType = buffer.toString('utf8', offset + 4, offset + 8);
+    offset += 8;
+
+    if (chunkType === 'JSON') {
+      return JSON.parse(buffer.toString('utf8', offset, offset + chunkLength).trim());
+    }
+
+    offset += chunkLength;
+  }
+
+  throw new Error('GLB JSON chunk not found');
 }
 
 describe('Optimization Pipeline', () => {
@@ -291,6 +327,35 @@ describe('Optimization Pipeline', () => {
         expect(result.steps[1].step).toBe('clean');
       });
 
+      it('should preserve unlit material extensions while optimizing', async () => {
+        await createUnlitTestGlbFile(inputPath);
+        const options: OptimizationOptions = {
+          clean: { enabled: true },
+        };
+
+        const result = await executePipeline(inputPath, outputPath, options);
+        const outputJson = readGlbJson(outputPath);
+
+        expect(result.success).toBe(true);
+        expect(outputJson.extensionsUsed).toContain(KHRMaterialsUnlit.EXTENSION_NAME);
+        expect(outputJson.materials[0].extensions).toHaveProperty(KHRMaterialsUnlit.EXTENSION_NAME);
+      });
+
+      it('should drop unlit material extensions when explicitly disabled', async () => {
+        await createUnlitTestGlbFile(inputPath);
+        const options: OptimizationOptions = {
+          extensions: { preserveUnlit: false },
+          clean: { enabled: true },
+        };
+
+        const result = await executePipeline(inputPath, outputPath, options);
+        const outputJson = readGlbJson(outputPath);
+
+        expect(result.success).toBe(true);
+        expect(outputJson.extensionsUsed || []).not.toContain(KHRMaterialsUnlit.EXTENSION_NAME);
+        expect(outputJson.materials[0].extensions || {}).not.toHaveProperty(KHRMaterialsUnlit.EXTENSION_NAME);
+      });
+
       it('should support merge only', async () => {
         const options: OptimizationOptions = {
           merge: { enabled: true },
@@ -372,6 +437,24 @@ describe('Optimization Pipeline', () => {
 
         expect(result.success).toBe(true);
         expect(result.steps.length).toBe(2); // repair-input + repair-output always run
+      });
+
+      it('should run repair when every optimization step is explicitly disabled', async () => {
+        const options: OptimizationOptions = {
+          clean: { enabled: false },
+          merge: { enabled: false },
+          simplify: { enabled: false },
+          quantize: { enabled: false },
+          draco: { enabled: false },
+          texture: { enabled: false },
+        };
+
+        const result = await executePipeline(inputPath, outputPath, options);
+
+        expect(result.success).toBe(true);
+        expect(result.steps.length).toBe(2);
+        expect(result.steps[0].step).toBe('repair-input');
+        expect(result.steps[1].step).toBe('repair-output');
       });
     });
 

@@ -15,7 +15,7 @@
  */
 
 import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
+import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -142,6 +142,10 @@ function isStepEnabled(
     default:
       return false;
   }
+}
+
+function shouldPreserveUnlit(options: OptimizationOptions): boolean {
+  return options.extensions?.preserveUnlit !== false;
 }
 
 /**
@@ -293,8 +297,11 @@ export async function executePipeline(
   }
 
   // Create NodeIO with extensions
+  const registeredExtensions = shouldPreserveUnlit(options)
+    ? [KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu]
+    : [KHRDracoMeshCompression, KHRTextureBasisu];
   const io = new NodeIO()
-    .registerExtensions([KHRDracoMeshCompression, KHRTextureBasisu])
+    .registerExtensions(registeredExtensions)
     .registerDependencies(await getDracoModules());
 
   // Read the input GLB file

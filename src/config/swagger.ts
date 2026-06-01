@@ -46,9 +46,67 @@ const swaggerOptions: swaggerJsdoc.Options = {
         name: 'Status',
         description: 'Task status endpoints',
       },
+      {
+        name: 'Async Jobs',
+        description: 'Async heavy-backend job APIs for COS upload, queueing, status, and result downloads',
+      },
     ],
     components: {
+      securitySchemes: {
+        ApiKeyAuth: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'x-api-key',
+        },
+      },
       schemas: {
+        CosObjectRef: {
+          type: 'object',
+          required: ['bucket', 'region', 'key'],
+          properties: {
+            bucket: { type: 'string', example: 'model-optimizer-1251022382' },
+            region: { type: 'string', example: 'ap-nanjing' },
+            key: { type: 'string', example: 'tenants/acme/jobs/job-1/input/source.glb' },
+            etag: { type: 'string' },
+            size: { type: 'integer' },
+          },
+        },
+        TemporaryUploadGrant: {
+          type: 'object',
+          properties: {
+            provider: { type: 'string', enum: ['local', 'tencent'] },
+            method: { type: 'string', enum: ['PUT'] },
+            uri: { type: 'string' },
+            putUrl: { type: 'string', format: 'uri' },
+            expiresAt: { type: 'string', format: 'date-time' },
+            allowedPrefix: { type: 'string' },
+            allowedActions: { type: 'array', items: { type: 'string' } },
+            credentials: {
+              type: 'object',
+              properties: {
+                tmpSecretId: { type: 'string' },
+                tmpSecretKey: { type: 'string' },
+                sessionToken: { type: 'string' },
+              },
+            },
+          },
+        },
+        CosJobManifest: {
+          type: 'object',
+          required: ['tenantId', 'input'],
+          properties: {
+            tenantId: { type: 'string', example: 'acme' },
+            taskType: { type: 'string', example: 'model.optimize' },
+            input: {
+              oneOf: [
+                { type: 'string', example: 'tenants/acme/incoming/source.glb' },
+                { $ref: '#/components/schemas/CosObjectRef' },
+              ],
+            },
+            callbackUrl: { type: 'string', format: 'uri' },
+            idempotencyKey: { type: 'string' },
+          },
+        },
         OptimizationOptions: {
           type: 'object',
           description: 'Options for GLB optimization',
