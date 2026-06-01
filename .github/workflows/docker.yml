@@ -49,12 +49,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Tencent Container Registry
+        id: tencent-login
         if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        continue-on-error: true
         uses: docker/login-action@v4
         with:
           registry: ${{ env.TENCENT_REGISTRY }}
           username: ${{ secrets.TENCENT_REGISTRY_USERNAME }}
           password: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
+
+      - name: Note Tencent registry login failure
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'failure'
+        run: echo "::notice::Tencent registry push skipped because login failed."
 
       - name: Extract GitHub metadata
         id: meta-ghcr
@@ -70,7 +76,7 @@ jobs:
 
       - name: Extract Tencent metadata
         id: meta-tencent
-        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'success'
         uses: docker/metadata-action@v6
         with:
           images: ${{ env.TENCENT_REGISTRY }}/${{ env.TENCENT_IMAGE_NAME }}
@@ -92,7 +98,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push Tencent image
-        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'success'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -104,7 +110,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Delete Tencent short-hash tags
-        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'success'
         env:
           TENCENT_REGISTRY_USERNAME: ${{ secrets.TENCENT_REGISTRY_USERNAME }}
           TENCENT_REGISTRY_PASSWORD: ${{ secrets.TENCENT_REGISTRY_PASSWORD }}
