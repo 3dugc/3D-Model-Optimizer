@@ -16,6 +16,7 @@ import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
+import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import swaggerUi from 'swagger-ui-express';
@@ -48,6 +49,28 @@ declare global {
 
 // Create Express application
 const app: Express = express();
+
+type BuildInfo = {
+  version: string;
+  packageVersion?: string;
+  builtAtIso?: string;
+  builtAtBeijing: string;
+  timeZone: string;
+};
+
+function loadBuildInfo(): BuildInfo {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf8')) as BuildInfo;
+  } catch {
+    return {
+      version: 'dev',
+      builtAtBeijing: '开发模式',
+      timeZone: 'Asia/Shanghai',
+    };
+  }
+}
+
+const buildInfo = loadBuildInfo();
 
 // CORS configuration
 app.use(cors({
@@ -96,6 +119,13 @@ app.use(express.json({
 }));
 // - URL-encoded body parser
 app.use(express.urlencoded({ extended: true, limit: config.jsonLimit }));
+
+app.get('/build-info.js', (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.type('application/javascript');
+  res.send(`window.__APP_BUILD_INFO__ = ${JSON.stringify(buildInfo)};\n`);
+});
+
 // - Static files for test UI
 app.use(express.static(path.join(__dirname, '../public')));
 

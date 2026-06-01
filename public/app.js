@@ -43,6 +43,19 @@ const refreshDownloadsBtn = document.getElementById('refreshDownloadsBtn');
 const modelInfoSection = document.getElementById('modelInfoSection');
 const optionsSection = document.getElementById('optionsSection');
 
+function renderBuildVersion() {
+  const versionEl = document.getElementById('buildVersion');
+  if (!versionEl) return;
+  const buildInfo = window.__APP_BUILD_INFO__;
+  if (buildInfo?.version && buildInfo.version !== 'dev') {
+    versionEl.textContent = `版本 ${buildInfo.version}`;
+    versionEl.title = `打包时间：${buildInfo.builtAtBeijing}`;
+    return;
+  }
+  versionEl.textContent = '版本 dev';
+  versionEl.title = '开发模式';
+}
+
 function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
 function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
 function base64Url(buffer) {
@@ -1045,5 +1058,6 @@ function getOptions() {
 }
 function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.remove('hidden'); }
 
+renderBuildVersion();
 initViewers();
 onResize();

@@ -3,6 +3,7 @@
 html, body { height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; }
 .app { display: flex; flex-direction: column; height: 100vh; }
 .main-content { display: flex; flex: 1; min-height: 0; }
+.build-footer { flex: 0 0 auto; min-height: 24px; border-top: 1px solid #dee2e6; background: #fff; color: #6c757d; font-size: 0.72rem; line-height: 24px; text-align: center; }
 
 /* Sidebar */
 .sidebar { width: 350px; background: #fff; border-right: 1px solid #dee2e6; overflow-y: auto; flex-shrink: 0; }
