@@ -9,7 +9,8 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { config } from '../config';
-import { getResultFilePath, getResultMetadata, listResultTasks, resultFileExists, type ResultMetadata } from '../utils/storage';
+import { getResultFilePath, getResultMetadata, listResultTasks, resultFileExists } from '../utils/storage';
+import { describeOptimizationOptions, summarizeOptimizationOptions } from '../utils/optimization-metadata';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { accountService } from '../accounts/account-service';
 import { requireWebUser, requireWebUserId } from '../middleware';
@@ -28,67 +29,7 @@ interface RetainedDownloadFile {
   expiresAt: string;
   remainingMs: number;
   optionsSummary: string;
-}
-
-const presetLabels: Record<string, string> = {
-  fast: '快速',
-  balanced: '均衡',
-  maximum: '极限',
-};
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
-
-function isEnabled(options: Record<string, unknown>, key: string): boolean {
-  return asRecord(options[key])?.enabled === true;
-}
-
-function summarizeOptions(metadata: ResultMetadata | null): string {
-  if (!metadata?.options) return '历史文件，未记录优化选项';
-
-  const options = metadata.options;
-  const parts = ['几何修复'];
-  if (metadata.presetName) {
-    parts.push(`预设：${presetLabels[metadata.presetName] || metadata.presetName}`);
-  }
-
-  const clean = asRecord(options.clean);
-  if (clean?.enabled === true) {
-    const scopes = [
-      clean.removeUnusedNodes !== false ? '节点' : '',
-      clean.removeUnusedMaterials !== false ? '材质' : '',
-      clean.removeUnusedTextures !== false ? '纹理' : '',
-    ].filter(Boolean);
-    parts.push(scopes.length ? `资源清理(${scopes.join('/')})` : '资源清理');
-  }
-  if (isEnabled(options, 'merge')) parts.push('Mesh 合并');
-
-  const simplify = asRecord(options.simplify);
-  if (simplify?.enabled === true) {
-    const ratio = typeof simplify.targetRatio === 'number' ? ` ${simplify.targetRatio}` : '';
-    parts.push(`网格减面${ratio}`);
-  }
-  if (isEnabled(options, 'quantize')) parts.push('顶点量化');
-
-  const draco = asRecord(options.draco);
-  if (draco?.enabled === true) {
-    const level = typeof draco.compressionLevel === 'number' ? ` ${draco.compressionLevel}` : '';
-    parts.push(`Draco 压缩${level}`);
-  }
-
-  const texture = asRecord(options.texture);
-  if (texture?.enabled === true) {
-    const mode = typeof texture.mode === 'string' ? ` ${texture.mode}` : '';
-    parts.push(`纹理压缩${mode}`);
-  }
-
-  const extensions = asRecord(options.extensions);
-  parts.push(extensions?.preserveUnlit === false ? '不保留不受光材质' : '保留不受光材质');
-
-  return parts.join('；');
+  optionsDetail: string;
 }
 
 /**
@@ -135,11 +76,14 @@ router.get('/', requireWebUser, async (req: Request, res: Response, next: NextFu
         optimizedAt: metadata?.optimizedAt || new Date(optimizedAtMs).toISOString(),
         expiresAt: new Date(expiresAtMs).toISOString(),
         remainingMs: Math.max(0, expiresAtMs - now),
-        optionsSummary: summarizeOptions(metadata),
+        optionsSummary: summarizeOptimizationOptions(metadata),
+        optionsDetail: describeOptimizationOptions(metadata),
       });
     }
 
-    files.sort((left, right) => right.optimizedAt.localeCompare(left.optimizedAt));
+    files.sort((left, right) => (
+      right.expiresAt.localeCompare(left.expiresAt) || right.optimizedAt.localeCompare(left.optimizedAt)
+    ));
 
     res.json({
       success: true,
