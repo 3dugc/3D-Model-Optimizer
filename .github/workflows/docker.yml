@@ -2,10 +2,9 @@ name: Docker Build & Push
 
 on:
   push:
-    branches: [main, master, 'codex/**']
-    tags: ['v*']
+    branches: [develop, main, publish]
   pull_request:
-    branches: [main, master]
+    branches: [develop, main, publish]
   workflow_dispatch:
 
 env:
@@ -63,7 +62,11 @@ jobs:
         with:
           images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=publish,enable=${{ github.ref == 'refs/heads/publish' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/publish' }}
+            type=ref,event=pr
 
       - name: Extract Tencent metadata
         id: meta-tencent
@@ -72,7 +75,10 @@ jobs:
         with:
           images: ${{ env.TENCENT_REGISTRY }}/${{ env.TENCENT_IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=publish,enable=${{ github.ref == 'refs/heads/publish' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/publish' }}
 
       - name: Build and push GitHub image
         uses: docker/build-push-action@v7

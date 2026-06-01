@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, master, 'codex/**']
+    branches: [develop, main, publish]
   pull_request:
-    branches: [main, master]
+    branches: [develop, main, publish]
 
 jobs:
   test:
