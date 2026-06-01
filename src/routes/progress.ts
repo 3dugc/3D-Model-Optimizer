@@ -16,9 +16,17 @@ import { getResultFilePath } from '../utils/storage';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
 import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
 import { runPaidOptimization } from '../components/paid-optimization-runner';
+import { findReusableOptimizationResult } from '../components/reusable-optimization-result';
 import { OptimizationOptions, OPTIMIZATION_PRESETS, PresetName } from '../models/options';
 import { OptimizationError } from '../models/error';
 import { validateOptions } from '../utils/options-validator';
+import {
+  canonicalizeOptimizationOptions,
+  describeOptimizationOptions,
+  hashFile,
+  hashOptimizationOptions,
+  summarizeOptimizationOptions,
+} from '../utils/optimization-metadata';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { isHttpError } from '../utils/http-error';
 import logger from '../utils/logger';
@@ -108,6 +116,25 @@ router.post(
 
       const { sanitized } = validateOptions(options);
       options = sanitized;
+      const canonicalOptions = canonicalizeOptimizationOptions(options);
+      const inputHash = await hashFile(prepared.inputGlbPath);
+      const optionsHash = hashOptimizationOptions(options);
+
+      const reusable = await findReusableOptimizationResult({
+        userId,
+        inputHash,
+        optionsHash,
+      });
+      if (reusable) {
+        sendEvent('reuse', reusable);
+        sendEvent('result', {
+          ...reusable,
+          conversion: prepared.conversion,
+        });
+        sendEvent('done', { taskId: reusable.taskId, success: true, reused: true });
+        res.end();
+        return;
+      }
 
       const paid = await runPaidOptimization({
         taskId,
@@ -120,6 +147,9 @@ router.post(
           originalFilename,
           presetName,
           options: options as Record<string, unknown>,
+          canonicalOptions,
+          inputHash,
+          optionsHash,
           conversion: prepared.conversion,
         },
         onWallet: (event) => sendEvent('wallet', event),
@@ -150,6 +180,8 @@ router.post(
         ...paid.result,
         conversion: prepared.conversion,
         wallet: paid.wallet,
+        optionsSummary: summarizeOptimizationOptions({ presetName, options: options as Record<string, unknown> }),
+        optionsDetail: describeOptimizationOptions({ presetName, options: options as Record<string, unknown> }),
         ...(paid.chargeStatus === 'released' && { chargeStatus: 'released' }),
       });
       sendEvent('done', { taskId, success: paid.result.success });

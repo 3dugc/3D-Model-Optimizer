@@ -17,9 +17,17 @@ import { getResultFilePath } from '../utils/storage';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
 import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
 import { runPaidOptimization } from '../components/paid-optimization-runner';
+import { findReusableOptimizationResult } from '../components/reusable-optimization-result';
 import { OptimizationOptions, OPTIMIZATION_PRESETS, PresetName } from '../models/options';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { validateOptions } from '../utils/options-validator';
+import {
+  canonicalizeOptimizationOptions,
+  describeOptimizationOptions,
+  hashFile,
+  hashOptimizationOptions,
+  summarizeOptimizationOptions,
+} from '../utils/optimization-metadata';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import logger from '../utils/logger';
 
@@ -126,6 +134,22 @@ router.post(
         logger.warn({ errors: validationErrors }, 'Options validation warnings');
       }
       options = sanitized;
+      const canonicalOptions = canonicalizeOptimizationOptions(options);
+      const inputHash = await hashFile(prepared.inputGlbPath);
+      const optionsHash = hashOptimizationOptions(options);
+
+      const reusable = await findReusableOptimizationResult({
+        userId,
+        inputHash,
+        optionsHash,
+      });
+      if (reusable) {
+        res.json({
+          ...reusable,
+          conversion: prepared.conversion,
+        });
+        return;
+      }
 
       const paid = await runPaidOptimization({
         taskId,
@@ -138,14 +162,20 @@ router.post(
           originalFilename,
           presetName,
           options: options as Record<string, unknown>,
+          canonicalOptions,
+          inputHash,
+          optionsHash,
           conversion: prepared.conversion,
         },
       });
 
+      const optionsMetadata = { presetName, options: options as Record<string, unknown> };
       res.json({
         ...paid.result,
         conversion: prepared.conversion,
         wallet: paid.wallet,
+        optionsSummary: summarizeOptimizationOptions(optionsMetadata),
+        optionsDetail: describeOptimizationOptions(optionsMetadata),
         ...(paid.chargeStatus === 'released' && { chargeStatus: 'released' }),
       });
     } catch (error) {

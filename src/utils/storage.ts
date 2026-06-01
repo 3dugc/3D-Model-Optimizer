@@ -52,6 +52,9 @@ export interface ResultMetadata {
   originalFilename?: string;
   presetName?: string;
   options?: Record<string, unknown>;
+  canonicalOptions?: Record<string, unknown>;
+  inputHash?: string;
+  optionsHash?: string;
   conversion?: object;
   originalSize?: number;
   optimizedSize?: number;
@@ -178,6 +181,17 @@ export class StorageManager {
     const file = await this.readFileIfExists(this.getResultMetadataPath(taskId));
     if (!file) return null;
     return JSON.parse(file.toString('utf8')) as ResultMetadata;
+  }
+
+  /**
+   * Refreshes the filesystem retention clock for a result and its metadata.
+   *
+   * @param taskId - The task identifier
+   * @param date - Timestamp to use for the refreshed mtime
+   */
+  async refreshResultRetention(taskId: string, date = new Date()): Promise<void> {
+    await fs.promises.utimes(this.getResultFilePath(taskId), date, date);
+    await this.touchFileIfExists(this.getResultMetadataPath(taskId), date);
   }
 
   /**
@@ -397,6 +411,21 @@ export class StorageManager {
   }
 
   /**
+   * Updates a file mtime when it exists.
+   */
+  private async touchFileIfExists(filePath: string, date: Date): Promise<boolean> {
+    try {
+      await fs.promises.utimes(filePath, date, date);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Cleans up old files in a directory
    */
   private async cleanupDirectory(dirPath: string, now: number, maxAgeMs: number): Promise<number> {
@@ -546,6 +575,16 @@ export async function saveResultMetadata(metadata: ResultMetadata): Promise<void
  */
 export async function getResultMetadata(taskId: string): Promise<ResultMetadata | null> {
   return storage.getResultMetadata(taskId);
+}
+
+/**
+ * Refreshes the retention clock for a result file and its metadata.
+ *
+ * @param taskId - The task identifier
+ * @param date - Timestamp to use for the refreshed mtime
+ */
+export async function refreshResultRetention(taskId: string, date = new Date()): Promise<void> {
+  return storage.refreshResultRetention(taskId, date);
 }
 
 /**
