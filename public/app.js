@@ -23,7 +23,6 @@ let nativePaymentConfigured = false;
 let rechargePollTimer = null;
 let wechatLoginScriptPromise = null;
 let wechatLoginPollTimer = null;
-let fallbackWechatLoginUrl = '';
 let wireframeMode = false, viewMode = 'split';
 let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
 let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
@@ -507,7 +506,6 @@ function showWechatLoginModalSkeleton(message) {
   const qr = document.getElementById('wechatLoginQr');
   const status = document.getElementById('wechatLoginStatus');
   qr.innerHTML = '<div class="spinner-border spinner-border-sm text-success" role="status"></div>';
-  document.getElementById('wechatLoginFallbackBtn').classList.remove('hidden');
   status.textContent = message || '正在加载微信二维码...';
   bootstrap.Modal.getOrCreateInstance(modalEl).show();
 }
@@ -560,8 +558,7 @@ function startOfficialQrPolling(widgetConfig) {
   }, intervalMs);
 }
 
-async function renderWechatLoginModal(widgetConfig, fallbackUrl) {
-  fallbackWechatLoginUrl = fallbackUrl;
+async function renderWechatLoginModal(widgetConfig) {
   showWechatLoginModalSkeleton('正在加载微信二维码...');
   stopWechatLoginPolling();
   if (widgetConfig.mode === 'mock' && widgetConfig.callbackUrl) {
@@ -606,7 +603,6 @@ async function renderWechatLoginModal(widgetConfig, fallbackUrl) {
 
 async function startAuthServiceLogin() {
   const request = await createAuthServiceLoginRequest();
-  fallbackWechatLoginUrl = request.loginUrl;
   if (!authServiceWidgetConfigPath) {
     window.location.href = request.loginUrl;
     return;
@@ -625,7 +621,7 @@ async function startAuthServiceLogin() {
     });
     const widgetConfig = await res.json();
     if (!res.ok) throw new Error(widgetConfig.error?.message || '微信扫码登录配置加载失败。');
-    await renderWechatLoginModal(widgetConfig, request.loginUrl);
+    await renderWechatLoginModal(widgetConfig);
   } catch (error) {
     document.getElementById('wechatLoginQr').innerHTML = '<i class="bi bi-exclamation-circle text-warning" style="font-size:2rem;"></i>';
     document.getElementById('wechatLoginStatus').textContent = error.message === 'not_found'
@@ -634,9 +630,6 @@ async function startAuthServiceLogin() {
   }
 }
 
-document.getElementById('wechatLoginFallbackBtn').addEventListener('click', () => {
-  if (fallbackWechatLoginUrl) window.location.href = fallbackWechatLoginUrl;
-});
 document.getElementById('wechatLoginModal').addEventListener('hidden.bs.modal', stopWechatLoginPolling);
 
 document.getElementById('wechatOAuthLoginBtn').addEventListener('click', async () => {
