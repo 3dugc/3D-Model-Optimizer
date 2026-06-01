@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
@@ -26,6 +27,9 @@ let fallbackWechatLoginUrl = '';
 let wireframeMode = false, viewMode = 'split';
 let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
 let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
+
+const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.6/';
+const KTX2_TRANSCODER_PATH = 'https://unpkg.com/three@0.160.0/examples/jsm/libs/basis/';
 
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
@@ -723,6 +727,23 @@ function onResize() {
 }
 window.addEventListener('resize', onResize);
 
+function createGltfLoader(side) {
+  const loader = new GLTFLoader();
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
+  loader.setDRACOLoader(dracoLoader);
+
+  const renderer = side === 'left' ? leftRenderer : rightRenderer;
+  if (renderer) {
+    const ktx2Loader = new KTX2Loader();
+    ktx2Loader.setTranscoderPath(KTX2_TRANSCODER_PATH);
+    ktx2Loader.detectSupport(renderer);
+    loader.setKTX2Loader(ktx2Loader);
+  }
+
+  return loader;
+}
+
 function loadModelFromFile(file, scene, side) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -744,7 +765,7 @@ function loadModelFromFile(file, scene, side) {
       URL.revokeObjectURL(url); resolve(model);
     };
     if (ext === 'glb' || ext === 'gltf') {
-      const loader = new GLTFLoader(); const dl = new DRACOLoader(); dl.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'); loader.setDRACOLoader(dl); loader.load(url, onLoad, undefined, reject);
+      createGltfLoader(side).load(url, onLoad, undefined, reject);
     } else if (ext === 'obj') {
       new OBJLoader().load(url, (obj) => { obj.traverse(c => { if (c.isMesh) c.material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 }); }); onLoad(obj); }, undefined, reject);
     } else if (ext === 'stl') {
@@ -769,8 +790,7 @@ function loadModelFromFile(file, scene, side) {
 
 function loadModelFromUrl(url, scene, side) {
   return new Promise((resolve, reject) => {
-    const loader = new GLTFLoader(); const dl = new DRACOLoader(); dl.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'); loader.setDRACOLoader(dl);
-    loader.load(url, (gltf) => {
+    createGltfLoader(side).load(url, (gltf) => {
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model); const center = box.getCenter(new THREE.Vector3()); const size = box.getSize(new THREE.Vector3());
       const maxDim = Math.max(size.x, size.y, size.z); const scale = 3 / maxDim;
