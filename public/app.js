@@ -302,7 +302,7 @@ function renderDownloadList(files) {
     link.textContent = `下载 · 还剩 ${formatRemainingTime(file.remainingMs)}`;
     link.addEventListener('click', async () => {
       try {
-        const downloaded = await fetchOptimizedFile(file.taskId);
+        const downloaded = await fetchOptimizedFile(file.taskId, file.downloadUrl);
         saveFile(downloaded);
       } catch (error) {
         showError(error.message);
@@ -1050,6 +1050,23 @@ optimizeBtn.addEventListener('click', async () => {
     if (!res.ok) throw new Error(created?.error?.message || '优化任务创建失败');
     if (created.wallet) displayWallet(created.wallet);
     renderProgressStep('upload', 'done', '模型已上传到云端任务存储');
+    if (created.reused && created.result) {
+      renderProgressStep('queue', 'done', '命中相同模型的历史结果');
+      const reusedResult = created.result;
+      if (reusedResult.wallet) displayWallet(reusedResult.wallet);
+      currentTaskId = reusedResult.taskId;
+      currentDownloadUrl = reusedResult.downloadUrl || `/api/v1/account/wallet/jobs/${reusedResult.taskId}/result-file`;
+      displayResult(reusedResult); resultSection.classList.remove('hidden');
+      loadDownloadList();
+      rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'none';
+      try {
+        const optimizedFile = await fetchOptimizedFile(reusedResult.taskId, currentDownloadUrl);
+        rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
+        if (wireframeMode) toggleWireframe(rightModel, true);
+        if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
+      } catch (e) { console.warn('Could not load optimized preview:', e); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('placeholderRight').textContent = '预览不可用'; }
+      return;
+    }
     renderProgressStep('queue', 'done', '任务已进入弹性队列');
 
     const finalResult = await pollElasticOptimizeJob(created.job.id);

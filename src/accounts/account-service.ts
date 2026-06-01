@@ -263,6 +263,12 @@ export class AccountService {
     return job;
   }
 
+  async listPaidWebJobs(userId: string): Promise<CloudJob[]> {
+    const user = await this.requireUser(userId);
+    const jobs = await this.jobs.listJobs();
+    return jobs.filter((job) => job.userId === user.id && job.tenantId === user.tenantId);
+  }
+
   async completePaidWebJobUpload(userId: string, jobId: string): Promise<CloudJob> {
     const job = await this.getPaidWebJob(userId, jobId);
     if (job.status !== 'waiting_upload' && job.status !== 'waiting_manifest') return job;

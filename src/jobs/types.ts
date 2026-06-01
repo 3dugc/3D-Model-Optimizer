@@ -38,6 +38,15 @@ export interface CloudJob {
   paymentRequired: boolean;
   orderId?: string;
   chargeId?: string;
+  originalFilename?: string;
+  inputHash?: string;
+  optionsHash?: string;
+  canonicalOptions?: Record<string, unknown>;
+  conversion?: {
+    converted: boolean;
+    originalFormat: string;
+    conversionTime?: number;
+  };
   workerId?: string;
   leaseExpiresAt?: string;
   lastHeartbeatAt?: string;
@@ -66,6 +75,15 @@ export interface CreateCloudJobInput {
   callbackSecretId?: string;
   callbackSigningSecret?: string;
   userId?: string;
+  originalFilename?: string;
+  inputHash?: string;
+  optionsHash?: string;
+  canonicalOptions?: Record<string, unknown>;
+  conversion?: {
+    converted: boolean;
+    originalFormat: string;
+    conversionTime?: number;
+  };
   paymentRequired?: boolean;
 }
 

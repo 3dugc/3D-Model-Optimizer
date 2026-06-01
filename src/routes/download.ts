@@ -15,10 +15,14 @@ import { OptimizationError, ERROR_CODES } from '../models/error';
 import { accountService } from '../accounts/account-service';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { HttpError } from '../utils/http-error';
+import { createObjectStorageProvider } from '../cloud/object-storage';
+import type { CosObjectRef } from '../cloud/types';
+import type { CloudJob } from '../jobs/types';
 import * as fs from 'fs';
 
 const router = Router();
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const objectStorage = createObjectStorageProvider();
 
 interface RetainedDownloadFile {
   taskId: string;
@@ -30,6 +34,92 @@ interface RetainedDownloadFile {
   remainingMs: number;
   optionsSummary: string;
   optionsDetail: string;
+}
+
+interface ModelOptimizeReport {
+  metrics?: {
+    optimizedSize?: number;
+  };
+}
+
+function cloudJobOutputObject(job: CloudJob): CosObjectRef | undefined {
+  if (!job.outputBucket || !job.outputRegion || !job.outputKey) return undefined;
+  return {
+    bucket: job.outputBucket,
+    region: job.outputRegion,
+    key: job.outputKey,
+  };
+}
+
+function cloudJobReportObject(job: CloudJob): CosObjectRef | undefined {
+  if (!job.outputBucket || !job.outputRegion || !job.reportKey) return undefined;
+  return {
+    bucket: job.outputBucket,
+    region: job.outputRegion,
+    key: job.reportKey,
+  };
+}
+
+async function readCloudJobReport(job: CloudJob): Promise<ModelOptimizeReport | undefined> {
+  const reportObject = cloudJobReportObject(job);
+  if (!reportObject) return undefined;
+  try {
+    return JSON.parse(await objectStorage.readObjectText(reportObject)) as ModelOptimizeReport;
+  } catch {
+    return undefined;
+  }
+}
+
+function cloudJobFilename(job: CloudJob): string | undefined {
+  if (job.originalFilename) return job.originalFilename;
+  const payload = job.task.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const filename = (payload as { filename?: unknown }).filename;
+  return typeof filename === 'string' ? filename : undefined;
+}
+
+async function listCloudRetainedFiles(userId: string, now: number, existingTaskIds: Set<string>): Promise<RetainedDownloadFile[]> {
+  const jobs = await accountService.listPaidWebJobs(userId);
+  const files: RetainedDownloadFile[] = [];
+
+  for (const job of jobs) {
+    if (existingTaskIds.has(job.id)) continue;
+    if (job.status !== 'succeeded') continue;
+
+    const charge = await accountService.getJobCharge(job.id);
+    if (!charge || charge.userId !== userId || charge.status !== 'charged') continue;
+
+    const outputObject = cloudJobOutputObject(job);
+    if (!outputObject) continue;
+
+    const optimizedAtMs = Date.parse(job.completedAt || job.startedAt || job.createdAt);
+    if (!Number.isFinite(optimizedAtMs)) continue;
+    const expiresAtMs = optimizedAtMs + config.fileRetentionMs;
+    const remainingMs = Math.max(0, expiresAtMs - now);
+    if (remainingMs <= 0) continue;
+
+    try {
+      if (!(await objectStorage.objectExists(outputObject))) continue;
+    } catch {
+      continue;
+    }
+
+    const report = await readCloudJobReport(job);
+    const optionsMetadata = { presetName: job.preset, options: job.options as Record<string, unknown> };
+    files.push({
+      taskId: job.id,
+      downloadUrl: `/api/v1/account/wallet/jobs/${job.id}/result-file`,
+      size: report?.metrics?.optimizedSize || 0,
+      originalFilename: cloudJobFilename(job),
+      optimizedAt: new Date(optimizedAtMs).toISOString(),
+      expiresAt: new Date(expiresAtMs).toISOString(),
+      remainingMs,
+      optionsSummary: summarizeOptimizationOptions(optionsMetadata),
+      optionsDetail: describeOptimizationOptions(optionsMetadata),
+    });
+  }
+
+  return files;
 }
 
 /**
@@ -49,6 +139,7 @@ router.get('/', requireWebUser, async (req: Request, res: Response, next: NextFu
     const taskIds = await listResultTasks();
     const now = Date.now();
     const files: RetainedDownloadFile[] = [];
+    const existingTaskIds = new Set<string>();
 
     for (const taskId of taskIds) {
       if (!uuidRegex.test(taskId)) continue;
@@ -65,6 +156,7 @@ router.get('/', requireWebUser, async (req: Request, res: Response, next: NextFu
         continue;
       }
       if (!stats.isFile()) continue;
+      existingTaskIds.add(taskId);
 
       const optimizedAtMs = stats.mtimeMs;
       const expiresAtMs = optimizedAtMs + config.fileRetentionMs;
@@ -80,6 +172,8 @@ router.get('/', requireWebUser, async (req: Request, res: Response, next: NextFu
         optionsDetail: describeOptimizationOptions(metadata),
       });
     }
+
+    files.push(...await listCloudRetainedFiles(userId, now, existingTaskIds));
 
     files.sort((left, right) => (
       right.expiresAt.localeCompare(left.expiresAt) || right.optimizedAt.localeCompare(left.optimizedAt)

@@ -107,6 +107,11 @@ export class CloudJobService {
       callbackSecretId: input.callbackSecretId,
       callbackSigningSecret: input.callbackSigningSecret,
       userId: input.userId,
+      originalFilename: input.originalFilename || filename,
+      inputHash: input.inputHash,
+      optionsHash: input.optionsHash,
+      canonicalOptions: input.canonicalOptions,
+      conversion: input.conversion,
       paymentRequired,
       attempts: 0,
       maxAttempts: config.cloud.jobMaxAttempts,
@@ -124,6 +129,10 @@ export class CloudJobService {
 
   async getJob(jobId: string): Promise<CloudJob | undefined> {
     return this.store.get(jobId);
+  }
+
+  async listJobs(): Promise<CloudJob[]> {
+    return this.store.list();
   }
 
   async completeUpload(jobId: string, input?: CosObjectRef): Promise<CloudJob> {

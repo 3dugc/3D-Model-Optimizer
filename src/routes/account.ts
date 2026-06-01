@@ -31,9 +31,15 @@ import { OPTIMIZATION_PRESETS } from '../models/options';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { HttpError } from '../utils/http-error';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
-import { decodeUploadFilename } from '../utils/model-input';
+import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
 import { validateOptions } from '../utils/options-validator';
-import { describeOptimizationOptions, summarizeOptimizationOptions } from '../utils/optimization-metadata';
+import {
+  canonicalizeOptimizationOptions,
+  describeOptimizationOptions,
+  hashFile,
+  hashOptimizationOptions,
+  summarizeOptimizationOptions,
+} from '../utils/optimization-metadata';
 import { invoiceService } from '../invoices';
 
 const router = Router();
@@ -123,6 +129,24 @@ function parsePresetName(value: string | undefined): PresetName | undefined {
   return value as PresetName;
 }
 
+function buildEffectiveOptimizeOptions(preset: PresetName | undefined, options: OptimizationOptions): OptimizationOptions {
+  if (!preset) return options;
+  const { sanitized } = validateOptions({ ...OPTIMIZATION_PRESETS[preset], ...options });
+  return sanitized;
+}
+
+function normalizePresetName(value: string | undefined): PresetName | undefined {
+  return value && OPTIMIZATION_PRESETS[value as PresetName] ? value as PresetName : undefined;
+}
+
+function jobInputObject(job: CloudJob): CosObjectRef {
+  return {
+    bucket: job.inputBucket,
+    region: job.inputRegion,
+    key: job.inputKey,
+  };
+}
+
 function jobOutputObject(job: CloudJob): CosObjectRef {
   if (!job.outputBucket || !job.outputRegion || !job.outputKey) {
     throw new HttpError(409, 'RESULT_NOT_READY', 'Result is not ready.');
@@ -145,6 +169,105 @@ function jobReportObject(job: CloudJob): CosObjectRef {
   };
 }
 
+function jobRetentionMs(job: CloudJob, now = Date.now()): { optimizedAt: string; expiresAt: string; remainingMs: number } {
+  const optimizedAt = job.completedAt || job.startedAt || job.createdAt;
+  const optimizedAtMs = Date.parse(optimizedAt) || Date.parse(job.createdAt) || now;
+  const expiresAtMs = optimizedAtMs + config.fileRetentionMs;
+  return {
+    optimizedAt: new Date(optimizedAtMs).toISOString(),
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    remainingMs: Math.max(0, expiresAtMs - now),
+  };
+}
+
+function jobPayloadFilename(job: CloudJob): string | undefined {
+  const payload = job.task.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return undefined;
+  const filename = (payload as { filename?: unknown }).filename;
+  return typeof filename === 'string' ? filename : undefined;
+}
+
+async function cloudOutputExists(job: CloudJob): Promise<boolean> {
+  try {
+    return await objectStorage.objectExists(jobOutputObject(job));
+  } catch {
+    return false;
+  }
+}
+
+function jobOptionsHash(job: CloudJob): string {
+  return hashOptimizationOptions(buildEffectiveOptimizeOptions(normalizePresetName(job.preset), job.options || {}));
+}
+
+async function computeCloudJobInputHash(job: CloudJob): Promise<string | undefined> {
+  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'optimizer-web-existing-'));
+  try {
+    const inputPath = path.join(tempDir, 'input', path.basename(job.inputKey) || 'source.glb');
+    await objectStorage.downloadObject(jobInputObject(job), inputPath);
+    const prepared = await prepareModelInput({
+      inputPath,
+      scratchDir: path.join(tempDir, 'scratch'),
+      originalFilename: job.originalFilename || jobPayloadFilename(job) || path.basename(job.inputKey),
+      allowZip: true,
+    });
+    return await hashFile(prepared.inputGlbPath);
+  } catch {
+    return undefined;
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+  }
+}
+
+async function matchesWebOptimizeJob(job: CloudJob, input: { inputHash: string; optionsHash: string }): Promise<boolean> {
+  const optionsHash = job.optionsHash || jobOptionsHash(job);
+  if (optionsHash !== input.optionsHash) return false;
+
+  const inputHash = job.inputHash || await computeCloudJobInputHash(job);
+  return inputHash === input.inputHash;
+}
+
+interface ExistingOptimizeJob {
+  job: CloudJob;
+  reused: boolean;
+}
+
+async function findExistingWebOptimizeJob(input: {
+  userId: string;
+  inputHash: string;
+  optionsHash: string;
+}): Promise<ExistingOptimizeJob | undefined> {
+  const jobs = await accountService.listPaidWebJobs(input.userId);
+  const candidates: ExistingOptimizeJob[] = [];
+  const now = Date.now();
+
+  for (const job of jobs) {
+    if (job.taskType !== config.cloud.defaultTaskType) continue;
+
+    const charge = await accountService.getJobCharge(job.id);
+    if (!charge || charge.userId !== input.userId) continue;
+
+    if (job.status === 'succeeded') {
+      if (charge.status !== 'charged') continue;
+      if (jobRetentionMs(job, now).remainingMs <= 0) continue;
+      if (!(await cloudOutputExists(job))) continue;
+      if (!(await matchesWebOptimizeJob(job, input))) continue;
+      candidates.push({ job, reused: true });
+      continue;
+    }
+
+    if (['queued', 'processing', 'retry_wait'].includes(job.status) && charge.status === 'held') {
+      if (!(await matchesWebOptimizeJob(job, input))) continue;
+      candidates.push({ job, reused: false });
+    }
+  }
+
+  return candidates.sort((left, right) => {
+    if (left.reused !== right.reused) return left.reused ? -1 : 1;
+    return (Date.parse(right.job.completedAt || right.job.createdAt) || 0)
+      - (Date.parse(left.job.completedAt || left.job.createdAt) || 0);
+  })[0];
+}
+
 async function readModelOptimizeReport(job: CloudJob): Promise<ModelOptimizeReport | undefined> {
   if (job.status !== 'succeeded') return undefined;
   try {
@@ -162,6 +285,7 @@ async function buildWebOptimizeResult(job: CloudJob): Promise<Record<string, unk
   const optimizedSize = metrics.optimizedSize || 0;
   const compressionRatio = metrics.compressionRatio ?? (originalSize > 0 ? optimizedSize / originalSize : 1);
   const optionsMetadata = { presetName: job.preset, options: job.options as Record<string, unknown> };
+  const retention = jobRetentionMs(job);
 
   return {
     taskId: job.id,
@@ -171,6 +295,12 @@ async function buildWebOptimizeResult(job: CloudJob): Promise<Record<string, unk
     optimizedSize,
     compressionRatio,
     downloadUrl: `/api/v1/account/wallet/jobs/${job.id}/result-file`,
+    originalFilename: job.originalFilename || jobPayloadFilename(job),
+    optimizedAt: retention.optimizedAt,
+    expiresAt: retention.expiresAt,
+    remainingMs: retention.remainingMs,
+    downloadReady: true,
+    conversion: job.conversion,
     optionsSummary: summarizeOptimizationOptions(optionsMetadata),
     optionsDetail: describeOptimizationOptions(optionsMetadata),
     steps: [],
@@ -531,6 +661,7 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     const userId = requireWebUserId(req);
     let createdJobId: string | undefined;
+    let scratchDir: string | undefined;
 
     try {
       if (!req.file) {
@@ -541,12 +672,48 @@ router.post(
       const body = req.body as WebOptimizeJobBody;
       const preset = parsePresetName(body.preset);
       const options = parseWebOptimizeOptions(body);
+      const effectiveOptions = buildEffectiveOptimizeOptions(preset, options);
+      scratchDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'optimizer-web-upload-'));
+      const prepared = await prepareModelInput({
+        inputPath: req.file.path,
+        scratchDir,
+        originalFilename,
+        allowZip: true,
+      });
+      const inputHash = await hashFile(prepared.inputGlbPath);
+      const optionsHash = hashOptimizationOptions(effectiveOptions);
+      const existing = await findExistingWebOptimizeJob({ userId, inputHash, optionsHash });
+      if (existing) {
+        const wallet = await accountService.getWallet(userId);
+        const result = existing.reused ? await buildWebOptimizeResult(existing.job) : undefined;
+        res.status(existing.reused ? 200 : 202).json({
+          job: existing.job,
+          wallet,
+          existing: true,
+          reused: existing.reused,
+          ...(result && {
+            result: {
+              ...result,
+              reused: true,
+              duplicateOfTaskId: existing.job.id,
+              message: '已找到相同模型和相同优化参数的历史结果，未重新优化、未重复扣费，可直接下载上一个模型。',
+            },
+          }),
+        });
+        return;
+      }
+
       const paid = await accountService.createPaidWebJob({
         userId,
         filename: originalFilename,
         taskType: config.cloud.defaultTaskType,
         preset,
         options,
+        originalFilename,
+        inputHash,
+        optionsHash,
+        canonicalOptions: canonicalizeOptimizationOptions(effectiveOptions),
+        conversion: prepared.conversion,
       });
       createdJobId = paid.job.id;
 
@@ -563,7 +730,10 @@ router.post(
       }
       next(error);
     } finally {
-      await cleanupUploadedFile(req.file);
+      await Promise.all([
+        cleanupUploadedFile(req.file),
+        scratchDir ? fs.promises.rm(scratchDir, { recursive: true, force: true }) : undefined,
+      ]);
     }
   }
 );
