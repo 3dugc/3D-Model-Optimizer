@@ -2,26 +2,27 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [develop, main, publish]
   pull_request:
-    branches: [main, master]
+    branches: [develop, main, publish]
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
         with:
-          node-version: ${{ matrix.node-version }}
+          submodules: recursive
+
+      - name: Use Node.js 20.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20.x
           cache: 'npm'
+
+      - name: Use npm 11.x
+        run: npm install -g npm@11.12.1
 
       - name: Install dependencies
         run: npm ci
@@ -29,23 +30,58 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run tests
         run: npm test
 
-  lint:
+  type-check:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Use Node.js 20.x
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20.x
           cache: 'npm'
+
+      - name: Use npm 11.x
+        run: npm install -g npm@11.12.1
 
       - name: Install dependencies
         run: npm ci
 
       - name: Type check
         run: npm run build
+
+  payment-service:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Use Node.js 22.x
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22.x
+          cache: 'npm'
+          cache-dependency-path: services/payment-service/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: services/payment-service
+
+      - name: Build
+        run: npm run build
+        working-directory: services/payment-service
+
+      - name: Run tests
+        run: npm test
+        working-directory: services/payment-service
