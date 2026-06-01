@@ -298,7 +298,7 @@ function renderDownloadList(files) {
     const link = document.createElement('button');
     link.type = 'button';
     link.className = 'btn btn-sm btn-outline-success flex-shrink-0';
-    link.title = `优化时间：${new Date(file.optimizedAt).toLocaleString()}\n优化选项：${file.optionsSummary || '未记录'}`;
+    link.title = `优化时间：${new Date(file.optimizedAt).toLocaleString()}\n优化参数：${file.optionsDetail || file.optionsSummary || '未记录'}`;
     link.textContent = `下载 · 还剩 ${formatRemainingTime(file.remainingMs)}`;
     link.addEventListener('click', async () => {
       try {
@@ -834,10 +834,6 @@ function requireLoginForAction(action) {
   return false;
 }
 
-function hasEnoughBalance() {
-  return currentWallet && Number(currentWallet.cashBalanceCents || 0) >= jobPriceCents;
-}
-
 // ===== Upload =====
 uploadArea.addEventListener('click', () => { if (requireLoginForAction('上传模型')) fileInput.click(); });
 uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
@@ -950,10 +946,6 @@ setOptimizationMode(activeOptimizationMode);
 optimizeBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
   if (!requireLoginForAction('优化模型')) return;
-  if (!hasEnoughBalance()) {
-    showError(`余额不足，优化每次需要 ${formatMoney(jobPriceCents)}，请先充值。`);
-    return;
-  }
   loading.classList.add('show'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   document.getElementById('progressSteps').innerHTML = '';
   document.getElementById('loadingText').textContent = '优化处理中...';
@@ -1038,7 +1030,9 @@ function displayResult(data) {
   document.getElementById('optimizedSize').textContent = formatSize(opt);
   document.getElementById('savedSize').textContent = (saved >= 0 ? '-' : '+') + formatSize(Math.abs(saved));
   document.getElementById('compressionRatio').textContent = (data.compressionRatio * 100).toFixed(1) + '%';
+  downloadBtn.title = data.optionsDetail || data.optionsSummary ? `优化参数：\n${data.optionsDetail || data.optionsSummary}` : '优化参数未记录';
   let html = '';
+  if (data.reused) html += `<div class="alert alert-success small py-2 mb-2">${data.message || '已找到相同模型和参数的历史结果，未重新扣费，可直接下载上一个模型。'}</div>`;
   if (data.conversion?.converted) html += `<div class="step-item"><span class="step-icon bg-success-subtle text-success">✓</span><span class="flex-grow-1">格式转换 (${data.conversion.originalFormat} → GLB)</span><span class="text-muted small">${data.conversion.conversionTime}ms</span></div>`;
   html += (data.steps || []).map(s => `<div class="step-item"><span class="step-icon ${s.success ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'}">${s.success ? '✓' : '✗'}</span><span class="flex-grow-1">${s.step}</span><span class="text-muted small">${s.duration}ms</span></div>`).join('');
   document.getElementById('stepsList').innerHTML = html;

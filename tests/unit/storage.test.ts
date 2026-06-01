@@ -13,11 +13,19 @@ import {
   StorageManager,
   saveUploadedFile,
   saveResultFile,
+  saveResultMetadata,
+  getResultMetadata,
+  refreshResultRetention,
   getUploadedFile,
   getResultFile,
   deleteTaskFiles,
   cleanupOldFiles,
 } from '../../src/utils/storage';
+import {
+  describeOptimizationOptions,
+  hashOptimizationOptions,
+  summarizeOptimizationOptions,
+} from '../../src/utils/optimization-metadata';
 
 describe('StorageManager', () => {
   const testBaseDir = './temp-test';
@@ -94,6 +102,28 @@ describe('StorageManager', () => {
 
       const savedContent = await fs.promises.readFile(filePath);
       expect(savedContent.toString()).toBe('optimized GLB content');
+    });
+
+    it('should refresh result and metadata retention timestamps', async () => {
+      const taskId = 'test-task-refresh';
+      await storageManager.saveResultFile(taskId, Buffer.from('optimized GLB content'));
+      await storageManager.saveResultMetadata({
+        taskId,
+        optimizedAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
+        options: { draco: { enabled: true, compressionLevel: 7 } },
+      });
+
+      const oldDate = new Date('2026-01-01T00:00:00.000Z');
+      await fs.promises.utimes(storageManager.getResultFilePath(taskId), oldDate, oldDate);
+      await fs.promises.utimes(storageManager.getResultMetadataPath(taskId), oldDate, oldDate);
+
+      const refreshedAt = new Date('2026-01-01T00:10:00.000Z');
+      await storageManager.refreshResultRetention(taskId, refreshedAt);
+
+      const resultStats = await fs.promises.stat(storageManager.getResultFilePath(taskId));
+      const metadataStats = await fs.promises.stat(storageManager.getResultMetadataPath(taskId));
+      expect(Math.round(resultStats.mtimeMs)).toBe(refreshedAt.getTime());
+      expect(Math.round(metadataStats.mtimeMs)).toBe(refreshedAt.getTime());
     });
   });
 
@@ -383,6 +413,29 @@ describe('Storage convenience functions', () => {
     await deleteTaskFiles(taskId);
   });
 
+  it('result metadata should preserve optimization options and support retention refresh', async () => {
+    const taskId = 'convenience-test-metadata';
+    await saveResultFile(taskId, Buffer.from('result convenience test'));
+    await saveResultMetadata({
+      taskId,
+      optimizedAt: new Date().toISOString(),
+      options: {
+        draco: { enabled: true, compressionLevel: 7 },
+        texture: { enabled: true, mode: 'ETC1S' },
+      },
+    });
+
+    await refreshResultRetention(taskId, new Date());
+    const metadata = await getResultMetadata(taskId);
+
+    expect(metadata?.options?.draco).toEqual({ enabled: true, compressionLevel: 7 });
+    expect(summarizeOptimizationOptions(metadata)).toContain('Draco 压缩 7');
+    expect(describeOptimizationOptions(metadata)).toContain('纹理压缩：开启');
+
+    // Cleanup
+    await deleteTaskFiles(taskId);
+  });
+
   it('deleteTaskFiles should delete files using default storage', async () => {
     const taskId = 'convenience-test-3';
     await saveUploadedFile(taskId, Buffer.from('to delete'));
@@ -400,5 +453,20 @@ describe('Storage convenience functions', () => {
     const result = await cleanupOldFiles(10);
 
     expect(result.uploadsDeleted).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('optimization metadata helpers', () => {
+  it('should hash equivalent option objects consistently', () => {
+    const left = hashOptimizationOptions({
+      draco: { enabled: true, compressionLevel: 7 },
+      clean: { enabled: true, removeUnusedMaterials: true },
+    });
+    const right = hashOptimizationOptions({
+      clean: { removeUnusedMaterials: true, enabled: true },
+      draco: { compressionLevel: 7, enabled: true },
+    });
+
+    expect(left).toBe(right);
   });
 });
