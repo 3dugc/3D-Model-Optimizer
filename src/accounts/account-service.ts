@@ -257,6 +257,18 @@ export class AccountService {
     }
   }
 
+  async getPaidWebJob(userId: string, jobId: string): Promise<CloudJob> {
+    const job = await this.jobs.getJob(jobId);
+    if (!job || job.userId !== userId) throw new HttpError(404, 'JOB_NOT_FOUND', 'Job not found.');
+    return job;
+  }
+
+  async completePaidWebJobUpload(userId: string, jobId: string): Promise<CloudJob> {
+    const job = await this.getPaidWebJob(userId, jobId);
+    if (job.status !== 'waiting_upload' && job.status !== 'waiting_manifest') return job;
+    return this.jobs.completeUpload(jobId);
+  }
+
   async holdOptimizationCharge(userId: string, jobId: string): Promise<{ charge: JobCharge; wallet: Wallet }> {
     const user = await this.requireUser(userId);
     try {

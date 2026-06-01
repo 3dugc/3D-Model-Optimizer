@@ -1,5 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import QRCode from 'qrcode';
+import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
 import { accountService } from '../accounts/account-service';
 import {
@@ -19,11 +23,22 @@ import {
   verifyWechatOAuthState,
 } from '../accounts/wechat-oauth';
 import type { CreatePaidWebJobInput } from '../accounts/types';
+import { createObjectStorageProvider } from '../cloud/object-storage';
+import type { CosObjectRef } from '../cloud/types';
+import type { CloudJob } from '../jobs/types';
+import type { OptimizationOptions, PresetName } from '../models/options';
+import { OPTIMIZATION_PRESETS } from '../models/options';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { HttpError } from '../utils/http-error';
+import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
+import { decodeUploadFilename } from '../utils/model-input';
+import { validateOptions } from '../utils/options-validator';
+import { describeOptimizationOptions, summarizeOptimizationOptions } from '../utils/optimization-metadata';
 import { invoiceService } from '../invoices';
 
 const router = Router();
+const optimizeUpload = createModelUpload({ allowZip: true });
+const objectStorage = createObjectStorageProvider();
 
 interface AuthServiceCallbackBody {
   code?: string;
@@ -50,6 +65,11 @@ interface SyncRechargeOrderBody {
   outTradeNo?: string;
 }
 
+interface WebOptimizeJobBody {
+  preset?: string;
+  options?: string | OptimizationOptions;
+}
+
 interface CreateRechargeInvoiceBody {
   buyer?: {
     type?: 'INDIVIDUAL' | 'ORGANIZATION';
@@ -64,12 +84,97 @@ interface CreateRechargeInvoiceBody {
   };
 }
 
+interface ModelOptimizeReport {
+  success?: boolean;
+  metrics?: {
+    processingTimeMs?: number;
+    originalSize?: number;
+    optimizedSize?: number;
+    compressionRatio?: number;
+  };
+  errorMessage?: string;
+}
+
 function buildRelativeRedirectUrl(returnTo: string, params: Record<string, string>): string {
   const url = new URL(normalizeWechatOAuthReturnTo(returnTo), 'https://3dugc.com');
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
   }
   return `${url.pathname}${url.search}${url.hash}`;
+}
+
+function parseWebOptimizeOptions(body: WebOptimizeJobBody): OptimizationOptions {
+  if (!body.options) return {};
+  let raw: unknown;
+  try {
+    raw = typeof body.options === 'string' ? JSON.parse(body.options) : body.options;
+  } catch {
+    throw new HttpError(400, 'INVALID_OPTIONS', 'Invalid options JSON format.');
+  }
+  const { sanitized } = validateOptions(raw as OptimizationOptions);
+  return sanitized;
+}
+
+function parsePresetName(value: string | undefined): PresetName | undefined {
+  if (!value) return undefined;
+  if (!OPTIMIZATION_PRESETS[value as PresetName]) {
+    throw new HttpError(400, 'INVALID_OPTIONS', `Unknown preset: ${value}`);
+  }
+  return value as PresetName;
+}
+
+function jobOutputObject(job: CloudJob): CosObjectRef {
+  if (!job.outputBucket || !job.outputRegion || !job.outputKey) {
+    throw new HttpError(409, 'RESULT_NOT_READY', 'Result is not ready.');
+  }
+  return {
+    bucket: job.outputBucket,
+    region: job.outputRegion,
+    key: job.outputKey,
+  };
+}
+
+function jobReportObject(job: CloudJob): CosObjectRef {
+  if (!job.outputBucket || !job.outputRegion || !job.reportKey) {
+    throw new HttpError(409, 'RESULT_NOT_READY', 'Result report is not ready.');
+  }
+  return {
+    bucket: job.outputBucket,
+    region: job.outputRegion,
+    key: job.reportKey,
+  };
+}
+
+async function readModelOptimizeReport(job: CloudJob): Promise<ModelOptimizeReport | undefined> {
+  if (job.status !== 'succeeded') return undefined;
+  try {
+    return JSON.parse(await objectStorage.readObjectText(jobReportObject(job))) as ModelOptimizeReport;
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildWebOptimizeResult(job: CloudJob): Promise<Record<string, unknown> | undefined> {
+  if (job.status !== 'succeeded') return undefined;
+  const report = await readModelOptimizeReport(job);
+  const metrics = report?.metrics || {};
+  const originalSize = metrics.originalSize || 0;
+  const optimizedSize = metrics.optimizedSize || 0;
+  const compressionRatio = metrics.compressionRatio ?? (originalSize > 0 ? optimizedSize / originalSize : 1);
+  const optionsMetadata = { presetName: job.preset, options: job.options as Record<string, unknown> };
+
+  return {
+    taskId: job.id,
+    success: true,
+    processingTime: metrics.processingTimeMs || 0,
+    originalSize,
+    optimizedSize,
+    compressionRatio,
+    downloadUrl: `/api/v1/account/wallet/jobs/${job.id}/result-file`,
+    optionsSummary: summarizeOptimizationOptions(optionsMetadata),
+    optionsDetail: describeOptimizationOptions(optionsMetadata),
+    steps: [],
+  };
 }
 
 function buildWechatAccountHint(unionId: string | undefined, openId: string | undefined): string | undefined {
@@ -419,6 +524,50 @@ router.post('/wallet/wechat/notify', async (req: Request, res: Response, next: N
   }
 });
 
+router.post(
+  '/wallet/optimize-jobs',
+  requireWebUser,
+  optimizeUpload.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    const userId = requireWebUserId(req);
+    let createdJobId: string | undefined;
+
+    try {
+      if (!req.file) {
+        throw new HttpError(400, 'INVALID_FILE', 'No file uploaded.');
+      }
+
+      const originalFilename = decodeUploadFilename(req.file.originalname);
+      const body = req.body as WebOptimizeJobBody;
+      const preset = parsePresetName(body.preset);
+      const options = parseWebOptimizeOptions(body);
+      const paid = await accountService.createPaidWebJob({
+        userId,
+        filename: originalFilename,
+        taskType: config.cloud.defaultTaskType,
+        preset,
+        options,
+      });
+      createdJobId = paid.job.id;
+
+      await objectStorage.uploadObject(req.file.path, {
+        bucket: paid.job.inputBucket,
+        region: paid.job.inputRegion,
+        key: paid.job.inputKey,
+      });
+      const queued = await accountService.completePaidWebJobUpload(userId, paid.job.id);
+      res.status(202).json({ job: queued, wallet: paid.wallet });
+    } catch (error) {
+      if (createdJobId) {
+        await accountService.cancelPaidWebJob(userId, createdJobId).catch(() => undefined);
+      }
+      next(error);
+    } finally {
+      await cleanupUploadedFile(req.file);
+    }
+  }
+);
+
 router.post('/wallet/jobs', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = req.body as Omit<CreatePaidWebJobInput, 'userId'>;
@@ -428,6 +577,48 @@ router.post('/wallet/jobs', requireWebUser, async (req: Request, res: Response, 
     });
     res.status(202).json(result);
   } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/wallet/jobs/:jobId', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = requireWebUserId(req);
+    const job = await accountService.getPaidWebJob(userId, req.params.jobId);
+    const wallet = await accountService.getWallet(userId);
+    const result = await buildWebOptimizeResult(job);
+    res.json({ job, wallet, result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/wallet/jobs/:jobId/complete-upload', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const job = await accountService.completePaidWebJobUpload(requireWebUserId(req), req.params.jobId);
+    res.json({ job });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/wallet/jobs/:jobId/result-file', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
+  let tempPath: string | undefined;
+  try {
+    const job = await accountService.getPaidWebJob(requireWebUserId(req), req.params.jobId);
+    if (job.status !== 'succeeded') {
+      throw new HttpError(409, 'RESULT_NOT_READY', 'Result is not ready.');
+    }
+
+    tempPath = path.join(os.tmpdir(), 'optimizer-cloud-results', `${job.id}-${uuidv4()}.glb`);
+    await fs.promises.mkdir(path.dirname(tempPath), { recursive: true });
+    await objectStorage.downloadObject(jobOutputObject(job), tempPath);
+    res.download(tempPath, `optimized-${job.id}.glb`, (error) => {
+      if (tempPath) fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
+      if (error && !res.headersSent) next(error);
+    });
+  } catch (error) {
+    if (tempPath) await fs.promises.rm(tempPath, { force: true }).catch(() => undefined);
     next(error);
   }
 });

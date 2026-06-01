@@ -161,6 +161,36 @@ describe('account wallet billing', () => {
     expect(cancelled.wallet.frozenCents).toBe(0);
   });
 
+  it('queues a paid web job after its upload is completed', async () => {
+    const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
+    const jobStore = new LocalJobStore(await tempFile('jobs.json'));
+    const queue = new RecordingQueue();
+    const service = new AccountService(accountStore, new CloudJobService(jobStore, queue));
+
+    const login = await service.loginWithWechat({ openId: 'openid-upload-complete' });
+    const order = await service.createRechargeOrder({
+      userId: login.user.id,
+      amountCents: 800,
+      description: 'Recharge',
+      notifyUrl: 'https://example.com/wechat/notify',
+    });
+    await service.markRechargePaid(order.id, 'wx-transaction-upload-complete');
+
+    const paidJob = await service.createPaidWebJob({
+      userId: login.user.id,
+      filename: 'source.glb',
+    });
+    expect(paidJob.job.status).toBe('waiting_upload');
+    expect(queue.messages).toHaveLength(0);
+
+    const queued = await service.completePaidWebJobUpload(login.user.id, paidJob.job.id);
+    const fetched = await service.getPaidWebJob(login.user.id, paidJob.job.id);
+
+    expect(queued.status).toBe('queued');
+    expect(fetched.status).toBe('queued');
+    expect(queue.messages).toHaveLength(1);
+  });
+
   it('syncs a paid WeChat recharge order by querying the provider', async () => {
     const accountStore = new LocalAccountStore(await tempFile('accounts.json'));
     const payments = new PaidPaymentProvider();

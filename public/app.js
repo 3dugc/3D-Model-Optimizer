@@ -7,7 +7,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
 
-let selectedFile = null, currentTaskId = null, modelAnalysis = null;
+let selectedFile = null, currentTaskId = null, currentDownloadUrl = null, modelAnalysis = null;
 let webToken = localStorage.getItem('web_token') || '';
 let rechargePackagesCents = [800, 1800, 3800, 8800];
 let jobPriceCents = 100;
@@ -853,6 +853,8 @@ async function handleFile(file) {
   if (!['glb','gltf','obj','stl','fbx','usdz','dae','step','stp','prt','catpart','catproduct','asm'].includes(ext)) { alert('不支持的文件格式'); return; }
   if (file.size > 100 * 1024 * 1024) { alert('文件超过 100MB'); return; }
   selectedFile = file;
+  currentTaskId = null;
+  currentDownloadUrl = null;
   fileName.textContent = `${file.name} (${formatSize(file.size)})`;
   modelInfoSection.classList.add('hidden'); optionsSection.classList.add('hidden'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   leftModel = clearModel(leftScene, leftModel); document.getElementById('placeholderLeft').style.display = 'none'; document.getElementById('infoLeft').textContent = '';
@@ -942,77 +944,125 @@ document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
 applyOptimizationOptions(defaultOptimizationOptions);
 setOptimizationMode(activeOptimizationMode);
 
-// ===== Optimize (SSE with progress) =====
+function renderProgressStep(step, status, label, detail = '') {
+  const stepsEl = document.getElementById('progressSteps');
+  const stepId = `step-${step}`;
+  let el = document.getElementById(stepId);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = stepId;
+    el.className = 'step-item';
+    stepsEl.appendChild(el);
+  }
+
+  const icon = document.createElement('span');
+  const text = document.createElement('span');
+  text.className = 'flex-grow-1';
+  text.textContent = label;
+
+  icon.className = 'step-icon';
+  if (status === 'start') {
+    icon.classList.add('bg-warning-subtle', 'text-warning');
+    icon.innerHTML = '<div class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></div>';
+  } else if (status === 'done') {
+    icon.classList.add('bg-success-subtle', 'text-success');
+    icon.textContent = '✓';
+  } else if (status === 'error') {
+    icon.classList.add('bg-danger-subtle', 'text-danger');
+    icon.textContent = '✗';
+  } else {
+    icon.classList.add('bg-secondary-subtle', 'text-secondary');
+    icon.textContent = '•';
+  }
+
+  const nodes = [icon, text];
+  if (detail) {
+    const detailEl = document.createElement('span');
+    detailEl.className = status === 'error' ? 'text-danger small' : 'text-muted small';
+    detailEl.textContent = detail;
+    nodes.push(detailEl);
+  }
+  el.replaceChildren(...nodes);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pollElasticOptimizeJob(jobId) {
+  const startedAt = Date.now();
+  let lastStatus = '';
+  while (Date.now() - startedAt < 45 * 60 * 1000) {
+    const res = await fetch(`/api/v1/account/wallet/jobs/${jobId}`, { headers: getWebAuthHeaders() });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error?.message || '任务状态查询失败');
+    if (data.wallet) displayWallet(data.wallet);
+
+    const status = data.job?.status || 'unknown';
+    if (status !== lastStatus) {
+      lastStatus = status;
+      if (status === 'queued') {
+        renderProgressStep('queue', 'done', '任务已进入弹性队列');
+        renderProgressStep('worker', 'start', '等待弹性 Worker 接单');
+        document.getElementById('loadingText').textContent = '等待弹性 Worker 接单...';
+      } else if (status === 'processing') {
+        renderProgressStep('worker', 'start', '弹性 Worker 优化中');
+        document.getElementById('loadingText').textContent = '弹性 Worker 正在优化模型...';
+      } else if (status === 'retry_wait') {
+        renderProgressStep('worker', 'start', 'Worker 临时失败，等待重试');
+        document.getElementById('loadingText').textContent = '任务等待自动重试...';
+      } else if (status === 'succeeded') {
+        renderProgressStep('worker', 'done', '弹性 Worker 优化完成');
+      } else if (status === 'failed' || status === 'cancelled') {
+        renderProgressStep('worker', 'error', status === 'cancelled' ? '任务已取消' : '弹性优化失败', data.job?.errorMessage || '');
+      }
+    }
+
+    if (status === 'succeeded') {
+      if (!data.result) throw new Error('云端任务已完成，但结果报告暂不可用');
+      return data.result;
+    }
+    if (status === 'failed') throw new Error(data.job?.errorMessage || '云端优化失败');
+    if (status === 'cancelled') throw new Error('任务已取消');
+
+    await sleep(status === 'processing' ? 2500 : 2000);
+  }
+  throw new Error('任务处理超时，请稍后在下载区查看结果');
+}
+
+// ===== Optimize (elastic cloud job) =====
 optimizeBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
   if (!requireLoginForAction('优化模型')) return;
   loading.classList.add('show'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   document.getElementById('progressSteps').innerHTML = '';
-  document.getElementById('loadingText').textContent = '优化处理中...';
+  document.getElementById('loadingText').textContent = '正在提交弹性优化任务...';
+  currentTaskId = null;
+  currentDownloadUrl = null;
 
   const fd = new FormData(); fd.append('file', selectedFile);
   fd.append('options', JSON.stringify(getOptions()));
 
   try {
-    const res = await fetch('/api/optimize/stream', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
-    if (!res.ok || !res.body) {
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.error?.message || '优化请求失败');
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalResult = null;
+    renderProgressStep('upload', 'start', '上传模型到云端任务存储');
+    const res = await fetch('/api/v1/account/wallet/optimize-jobs', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
+    const created = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(created?.error?.message || '优化任务创建失败');
+    if (created.wallet) displayWallet(created.wallet);
+    renderProgressStep('upload', 'done', '模型已上传到云端任务存储');
+    renderProgressStep('queue', 'done', '任务已进入弹性队列');
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      let currentEvent = '';
-      for (const line of lines) {
-        if (line.startsWith('event: ')) currentEvent = line.slice(7);
-        else if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (currentEvent === 'progress') {
-              const stepsEl = document.getElementById('progressSteps');
-              const stepId = `step-${data.step}`;
-              let el = document.getElementById(stepId);
-              if (data.status === 'start') {
-                if (!el) {
-                  el = document.createElement('div');
-                  el.id = stepId;
-                  el.className = 'step-item';
-                  stepsEl.appendChild(el);
-                }
-                el.innerHTML = `<span class="step-icon bg-warning-subtle text-warning"><div class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></div></span><span class="flex-grow-1">${data.stepName || data.step}</span>`;
-                document.getElementById('loadingText').textContent = `正在执行: ${data.stepName || data.step}`;
-              } else if (data.status === 'done') {
-                if (el) el.innerHTML = `<span class="step-icon bg-success-subtle text-success">✓</span><span class="flex-grow-1">${data.stepName || data.step}</span><span class="text-muted small">${data.duration || 0}ms</span>`;
-              } else if (data.status === 'error') {
-                if (el) el.innerHTML = `<span class="step-icon bg-danger-subtle text-danger">✗</span><span class="flex-grow-1">${data.stepName || data.step}</span><span class="text-danger small">${data.error || ''}</span>`;
-              }
-            } else if (currentEvent === 'result') {
-              finalResult = data;
-            } else if (currentEvent === 'wallet') {
-              if (data.wallet) displayWallet(data.wallet);
-            } else if (currentEvent === 'error') {
-              showError(`优化失败: ${data.message || '未知错误'}`);
-            }
-          } catch (e) {}
-        }
-      }
-    }
+    const finalResult = await pollElasticOptimizeJob(created.job.id);
 
     if (finalResult && finalResult.success) {
       if (finalResult.wallet) displayWallet(finalResult.wallet);
-      currentTaskId = finalResult.taskId; displayResult(finalResult); resultSection.classList.remove('hidden');
+      currentTaskId = finalResult.taskId;
+      currentDownloadUrl = finalResult.downloadUrl || `/api/v1/account/wallet/jobs/${finalResult.taskId}/result-file`;
+      displayResult(finalResult); resultSection.classList.remove('hidden');
       loadDownloadList();
       rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'none';
       try {
-        const optimizedFile = await fetchOptimizedFile(finalResult.taskId);
+        const optimizedFile = await fetchOptimizedFile(finalResult.taskId, currentDownloadUrl);
         rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
         if (wireframeMode) toggleWireframe(rightModel, true);
         if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
@@ -1038,8 +1088,8 @@ function displayResult(data) {
   document.getElementById('stepsList').innerHTML = html;
 }
 
-async function fetchOptimizedFile(taskId) {
-  const res = await fetch(`/api/download/${taskId}`, { headers: getWebAuthHeaders() });
+async function fetchOptimizedFile(taskId, downloadUrl = null) {
+  const res = await fetch(downloadUrl || `/api/download/${taskId}`, { headers: getWebAuthHeaders() });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error?.message || '下载优化文件失败');
@@ -1062,7 +1112,7 @@ function saveFile(file) {
 downloadBtn.addEventListener('click', async () => {
   if (!currentTaskId) return;
   try {
-    const file = await fetchOptimizedFile(currentTaskId);
+    const file = await fetchOptimizedFile(currentTaskId, currentDownloadUrl);
     saveFile(file);
   } catch (error) {
     showError(error.message);
