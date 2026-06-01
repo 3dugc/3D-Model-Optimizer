@@ -8,8 +8,6 @@ on:
   workflow_dispatch:
 
 env:
-  GHCR_REGISTRY: ghcr.io
-  GHCR_IMAGE_NAME: ${{ github.repository }}
   TENCENT_REGISTRY: hkccr.ccs.tencentyun.com
   TENCENT_IMAGE_NAME: plugins/3d-model-optimizer
 
@@ -18,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - uses: actions/checkout@v6
@@ -40,14 +37,6 @@ jobs:
             echo "::notice::Tencent registry push skipped because TENCENT_REGISTRY_USERNAME/TENCENT_REGISTRY_PASSWORD are not configured."
           fi
 
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.GHCR_REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Log in to Tencent Container Registry
         id: tencent-login
         if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true'
@@ -62,18 +51,6 @@ jobs:
         if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'failure'
         run: echo "::notice::Tencent registry push skipped because login failed."
 
-      - name: Extract GitHub metadata
-        id: meta-ghcr
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}
-          tags: |
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=publish,enable=${{ github.ref == 'refs/heads/publish' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/publish' }}
-            type=ref,event=pr
-
       - name: Extract Tencent metadata
         id: meta-tencent
         if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'success'
@@ -85,17 +62,6 @@ jobs:
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=publish,enable=${{ github.ref == 'refs/heads/publish' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/publish' }}
-
-      - name: Build and push GitHub image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta-ghcr.outputs.tags }}
-          labels: ${{ steps.meta-ghcr.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: Build and push Tencent image
         if: github.event_name != 'pull_request' && steps.tencent-registry.outputs.enabled == 'true' && steps.tencent-login.outcome == 'success'
