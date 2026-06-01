@@ -45,6 +45,21 @@ export interface FileMetadata {
 }
 
 /**
+ * Metadata saved alongside an optimized result file.
+ */
+export interface ResultMetadata {
+  taskId: string;
+  originalFilename?: string;
+  presetName?: string;
+  options?: Record<string, unknown>;
+  conversion?: object;
+  originalSize?: number;
+  optimizedSize?: number;
+  compressionRatio?: number;
+  optimizedAt: string;
+}
+
+/**
  * Default storage configuration
  */
 const DEFAULT_CONFIG: StorageConfig = {
@@ -141,6 +156,31 @@ export class StorageManager {
   }
 
   /**
+   * Saves metadata for an optimized result.
+   *
+   * @param metadata - Result metadata to save
+   */
+  async saveResultMetadata(metadata: ResultMetadata): Promise<void> {
+    await this.ensureDirectoryExists(this.resultsPath);
+    await fs.promises.writeFile(
+      this.getResultMetadataPath(metadata.taskId),
+      JSON.stringify(metadata, null, 2)
+    );
+  }
+
+  /**
+   * Retrieves metadata for an optimized result.
+   *
+   * @param taskId - The task identifier
+   * @returns Result metadata, or null if not found
+   */
+  async getResultMetadata(taskId: string): Promise<ResultMetadata | null> {
+    const file = await this.readFileIfExists(this.getResultMetadataPath(taskId));
+    if (!file) return null;
+    return JSON.parse(file.toString('utf8')) as ResultMetadata;
+  }
+
+  /**
    * Gets the path to an uploaded file
    * 
    * @param taskId - The task identifier
@@ -158,6 +198,16 @@ export class StorageManager {
    */
   getResultFilePath(taskId: string): string {
     return path.join(this.resultsPath, `${taskId}.glb`);
+  }
+
+  /**
+   * Gets the path to result metadata.
+   *
+   * @param taskId - The task identifier
+   * @returns The full path to the metadata file
+   */
+  getResultMetadataPath(taskId: string): string {
+    return path.join(this.resultsPath, `${taskId}.json`);
   }
 
   /**
@@ -213,6 +263,7 @@ export class StorageManager {
   async deleteTaskFiles(taskId: string): Promise<{ uploadDeleted: boolean; resultDeleted: boolean }> {
     const uploadDeleted = await this.deleteFileIfExists(this.getUploadedFilePath(taskId));
     const resultDeleted = await this.deleteFileIfExists(this.getResultFilePath(taskId));
+    await this.deleteFileIfExists(this.getResultMetadataPath(taskId));
     return { uploadDeleted, resultDeleted };
   }
 
@@ -479,6 +530,25 @@ export async function getResultFile(taskId: string): Promise<Buffer | null> {
 }
 
 /**
+ * Saves metadata for an optimized result.
+ *
+ * @param metadata - Result metadata to save
+ */
+export async function saveResultMetadata(metadata: ResultMetadata): Promise<void> {
+  return storage.saveResultMetadata(metadata);
+}
+
+/**
+ * Retrieves metadata for an optimized result.
+ *
+ * @param taskId - The task identifier
+ * @returns Result metadata, or null if not found
+ */
+export async function getResultMetadata(taskId: string): Promise<ResultMetadata | null> {
+  return storage.getResultMetadata(taskId);
+}
+
+/**
  * Deletes all files associated with a task
  * 
  * @param taskId - The task identifier
@@ -496,6 +566,15 @@ export async function deleteTaskFiles(taskId: string): Promise<{ uploadDeleted: 
  */
 export async function cleanupOldFiles(maxAgeMs: number): Promise<{ uploadsDeleted: number; resultsDeleted: number }> {
   return storage.cleanupOldFiles(maxAgeMs);
+}
+
+/**
+ * Lists all task IDs with result files.
+ *
+ * @returns Array of task IDs
+ */
+export async function listResultTasks(): Promise<string[]> {
+  return storage.listResultTasks();
 }
 
 /**

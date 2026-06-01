@@ -1,0 +1,117 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: optimizer
+      MYSQL_USER: optimizer
+      MYSQL_PASSWORD: optimizer
+      MYSQL_ROOT_PASSWORD: optimizer-root
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uoptimizer -poptimizer --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:53306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  optimizer-api:
+    build: .
+    command: node dist/index.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      QUEUE_PROVIDER: local
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
+      BILLING_MODE: mock
+      PAYMENT_SERVICE_URL: http://payment-service:3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      HOST: 0.0.0.0
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+    depends_on:
+      mysql:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      WECHAT_PAY_MODE: ${WECHAT_PAY_MODE:-direct}
+      WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
+      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
+      WECHAT_PAY_SP_APP_ID: ${WECHAT_PAY_SP_APP_ID:-}
+      WECHAT_PAY_SP_MCH_ID: ${WECHAT_PAY_SP_MCH_ID:-}
+      WECHAT_PAY_SUB_APP_ID: ${WECHAT_PAY_SUB_APP_ID:-}
+      WECHAT_PAY_SUB_MCH_ID: ${WECHAT_PAY_SUB_MCH_ID:-}
+      WECHAT_PAY_PRIVATE_KEY: ${WECHAT_PAY_PRIVATE_KEY:-}
+      WECHAT_PAY_PRIVATE_KEY_PATH: ${WECHAT_PAY_PRIVATE_KEY_PATH:-}
+      WECHAT_PAY_CERT_SERIAL_NO: ${WECHAT_PAY_CERT_SERIAL_NO:-}
+      WECHAT_PAY_API_V3_KEY: ${WECHAT_PAY_API_V3_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-}
+      WECHAT_PAY_PLATFORM_CERT: ${WECHAT_PAY_PLATFORM_CERT:-}
+      WECHAT_PAY_PLATFORM_CERT_PATH: ${WECHAT_PAY_PLATFORM_CERT_PATH:-}
+      WECHAT_PAY_PLATFORM_SERIAL_NO: ${WECHAT_PAY_PLATFORM_SERIAL_NO:-}
+      WECHAT_PAY_API_BASE_URL: ${WECHAT_PAY_API_BASE_URL:-https://api.mch.weixin.qq.com}
+      WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  optimizer-worker:
+    build: .
+    command: node dist/worker/run-worker.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      QUEUE_PROVIDER: local
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
+      BILLING_MODE: mock
+      WORKER_ID: worker-compose-1
+      WORKER_CONCURRENCY: 1
+    volumes:
+      - ./data:/app/data
+      - ./temp:/app/temp
+    depends_on:
+      mysql:
+        condition: service_healthy
+      optimizer-api:
+        condition: service_started
+
+  optimizer-dispatcher:
+    build: .
+    command: node dist/dispatcher/run-dispatcher.js
+    env_file:
+      - .env.cloud.example
+    environment:
+      CLOUD_PROVIDER: local
+      DISPATCHER_PROVIDER: local
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
+      DISPATCHER_TASK_TYPE: model.optimize
+      DISPATCHER_SLOTS_PER_INSTANCE: 1
+      DISPATCHER_MAX_INSTANCES: 3
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:

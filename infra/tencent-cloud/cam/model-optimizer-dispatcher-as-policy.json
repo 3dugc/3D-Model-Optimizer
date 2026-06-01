@@ -1,0 +1,15 @@
+{
+  "version": "2.0",
+  "statement": [
+    {
+      "effect": "allow",
+      "action": [
+        "as:DescribeAutoScalingGroups",
+        "as:ModifyDesiredCapacity"
+      ],
+      "resource": [
+        "qcs::as:ap-nanjing:uin/59643:auto-scaling-group/asg-pj6qaput"
+      ]
+    }
+  ]
+}

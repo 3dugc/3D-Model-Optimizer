@@ -237,20 +237,39 @@ export interface CleanOptions {
 }
 
 /**
+ * Optional glTF extension handling options.
+ */
+export interface ExtensionOptions {
+  /**
+   * Preserve KHR_materials_unlit so materials keep their original unlit rendering.
+   *
+   * @default true
+   */
+  preserveUnlit?: boolean;
+}
+
+/**
  * Complete optimization options for the GLB optimization pipeline.
  * Combines all individual optimization options into a single configuration object.
  *
  * The optimization pipeline executes in the following order:
- * 1. clean - Resource cleanup
- * 2. merge - Mesh merging
- * 3. simplify - Mesh simplification
- * 4. quantize - Vertex quantization
- * 5. draco - Draco compression
- * 6. texture - Texture compression
+ * 1. repair-input - Geometry repair before optimization
+ * 2. clean - Resource cleanup
+ * 3. merge - Mesh merging
+ * 4. simplify - Mesh simplification
+ * 5. quantize - Vertex quantization
+ * 6. draco - Draco compression
+ * 7. texture - Texture compression
+ * 8. repair-output - Geometry repair after optimization
  *
  * @see Requirements 8.1-8.5
  */
 export interface OptimizationOptions {
+  /**
+   * Optional glTF extension handling options.
+   */
+  extensions?: ExtensionOptions;
+
   /**
    * Mesh simplification options using meshoptimizer.
    * Reduces polygon count while preserving visual quality.
@@ -334,6 +353,13 @@ export const DEFAULT_CLEAN_OPTIONS: Partial<CleanOptions> = {
 };
 
 /**
+ * Default values for ExtensionOptions.
+ */
+export const DEFAULT_EXTENSION_OPTIONS: Required<ExtensionOptions> = {
+  preserveUnlit: true,
+};
+
+/**
  * Valid range for simplify target ratio.
  */
 export const SIMPLIFY_RATIO_RANGE = {
@@ -364,6 +390,7 @@ export type PresetName = 'fast' | 'balanced' | 'maximum';
 export const OPTIMIZATION_PRESETS: Record<PresetName, OptimizationOptions> = {
   /** Fast: minimal processing, quick results */
   fast: {
+    extensions: { preserveUnlit: true },
     clean: { enabled: true, removeUnusedNodes: true, removeUnusedMaterials: true, removeUnusedTextures: true },
     merge: { enabled: false },
     simplify: { enabled: false },
@@ -373,6 +400,7 @@ export const OPTIMIZATION_PRESETS: Record<PresetName, OptimizationOptions> = {
   },
   /** Balanced: good compression with reasonable quality */
   balanced: {
+    extensions: { preserveUnlit: true },
     clean: { enabled: true, removeUnusedNodes: true, removeUnusedMaterials: true, removeUnusedTextures: true },
     merge: { enabled: true },
     simplify: { enabled: true, targetRatio: 0.75, error: 0.01 },
@@ -382,6 +410,7 @@ export const OPTIMIZATION_PRESETS: Record<PresetName, OptimizationOptions> = {
   },
   /** Maximum: aggressive compression for smallest file size */
   maximum: {
+    extensions: { preserveUnlit: true },
     clean: { enabled: true, removeUnusedNodes: true, removeUnusedMaterials: true, removeUnusedTextures: true },
     merge: { enabled: true },
     simplify: { enabled: true, targetRatio: 0.5, error: 0.02 },

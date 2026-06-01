@@ -1,0 +1,65 @@
+:root { --accent: #6f42c1; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; }
+.app { display: flex; flex-direction: column; height: 100vh; }
+.main-content { display: flex; flex: 1; min-height: 0; }
+.build-footer { flex: 0 0 auto; min-height: 24px; border-top: 1px solid #dee2e6; background: #fff; color: #6c757d; font-size: 0.72rem; line-height: 24px; text-align: center; }
+
+/* Sidebar */
+.sidebar { width: 350px; background: #fff; border-right: 1px solid #dee2e6; overflow-y: auto; flex-shrink: 0; }
+.sidebar::-webkit-scrollbar { width: 5px; }
+.sidebar::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
+.sidebar-section { padding: 16px; border-bottom: 1px solid #e9ecef; }
+.sidebar-section h6 { font-size: 0.8rem; font-weight: 600; color: #495057; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+
+/* Upload */
+.drop-zone { border: 2px dashed #ced4da; border-radius: 10px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s; background: #f8f9fa; }
+.drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: rgba(111,66,193,0.04); }
+.drop-zone input { display: none; }
+
+/* Viewer area — use absolute positioning to guarantee height */
+.viewer-area { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; overflow: hidden; }
+.viewer-toolbar { background: #fff; border-bottom: 1px solid #dee2e6; flex-shrink: 0; }
+.viewer-container { flex: 1 1 0%; display: flex; position: relative; overflow: hidden; }
+.viewer-panel { flex: 1 1 0%; position: relative; background: #e9ecef; overflow: hidden; }
+.viewer-label { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10; pointer-events: none; }
+.viewer-divider { width: 3px; background: var(--accent); cursor: col-resize; z-index: 5; flex-shrink: 0; }
+.viewer-divider:hover { background: #7c4dff; }
+.viewer-info { position: absolute; bottom: 10px; left: 10px; z-index: 10; pointer-events: none; }
+.viewer-placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: #adb5bd; }
+
+/* Stats */
+.stat-card { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px; text-align: center; }
+.stat-card .stat-value { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+.stat-card .stat-label { font-size: 0.7rem; color: #6c757d; }
+
+/* Steps */
+.step-item { display: flex; align-items: center; padding: 4px 0; font-size: 0.8rem; }
+.step-icon { width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; margin-right: 8px; font-size: 0.65rem; flex-shrink: 0; }
+
+/* Download list */
+.download-item { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 8px; }
+.download-meta { color: #6c757d; font-size: 0.7rem; line-height: 1.35; }
+
+/* Info rows */
+.info-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 0.8rem; }
+.info-label { color: #6c757d; }
+.info-value { color: #212529; font-weight: 500; }
+
+/* Loading */
+.loading-box { display: none; padding: 20px; text-align: center; }
+.loading-box.show { display: block; }
+
+/* Auth */
+.account-avatar, .account-avatar-placeholder { width: 36px; height: 36px; border-radius: 50%; flex: 0 0 auto; }
+.account-avatar { object-fit: cover; }
+.account-avatar-placeholder { display: inline-flex; align-items: center; justify-content: center; background: #e9f7ef; color: #198754; }
+.pay-qr { width: 180px; height: 180px; display: block; margin: 10px auto 8px; background: #fff; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px; }
+.pay-code { display: block; word-break: break-all; color: #6c757d; font-size: 0.68rem; line-height: 1.35; }
+.wechat-login-qr { min-height: 320px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.wechat-login-qr iframe { max-width: 100%; }
+.wechat-login-qr img { width: min(260px, 100%); height: auto; }
+.wechat-login-status { min-height: 20px; }
+
+.hidden { display: none !important; }
+.form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }

@@ -1,5 +1,8 @@
 # 三维模型优化服务 - 支持 KTX2, USDZ, FBX, STEP 和 DAE
-FROM node:20-bookworm-slim
+# The optional conversion toolchain currently depends on linux/amd64 binaries
+# and PyPI wheels (KTX, FBX2glTF, COLLADA2GLTF, usd-core).
+ARG RUNTIME_PLATFORM=linux/amd64
+FROM --platform=${RUNTIME_PLATFORM} node:20-bookworm-slim
 
 # Install dependencies for KTX-Software, Python (for USD/STEP), and FBX2glTF
 RUN apt-get update && apt-get install -y \
@@ -8,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     git \
     libzstd-dev \
+    libxrender1 \
     python3 \
     python3-pip \
     python3-venv \
@@ -27,12 +31,12 @@ RUN wget --tries=3 --timeout=60 -q https://github.com/KhronosGroup/KTX-Software/
     || echo "WARNING: KTX-Software installation failed, texture compression will not be available"
 
 # Download and install FBX2glTF
-RUN wget --tries=3 --timeout=60 -q https://github.com/facebookincubator/FBX2glTF/releases/download/v0.13.1/FBX2glTF-linux-x64.zip \
-    && unzip FBX2glTF-linux-x64.zip \
-    && chmod +x FBX2glTF-linux-x64 \
-    && mv FBX2glTF-linux-x64 /usr/local/bin/FBX2glTF \
-    && rm FBX2glTF-linux-x64.zip \
-    && (FBX2glTF --help || true) \
+RUN wget --tries=3 --timeout=60 -q https://github.com/godotengine/FBX2glTF/releases/download/v0.13.1/FBX2glTF-linux-x86_64.zip \
+    && unzip FBX2glTF-linux-x86_64.zip \
+    && chmod +x FBX2glTF-linux-x86_64/FBX2glTF-linux-x86_64 \
+    && mv FBX2glTF-linux-x86_64/FBX2glTF-linux-x86_64 /usr/local/bin/FBX2glTF \
+    && rm -rf FBX2glTF-linux-x86_64 FBX2glTF-linux-x86_64.zip \
+    && FBX2glTF --help \
     || echo "WARNING: FBX2glTF installation failed, FBX conversion will not be available"
 
 # Download and install COLLADA2GLTF for DAE conversion
@@ -44,15 +48,27 @@ RUN wget --tries=3 --timeout=60 -q https://github.com/KhronosGroup/COLLADA2GLTF/
     && (COLLADA2GLTF --help || true) \
     || echo "WARNING: COLLADA2GLTF installation failed, DAE conversion will not be available"
 
-# Install Python packages for USD and STEP conversion (optional, allow failure)
-RUN pip3 install --break-system-packages \
-    usd-core \
-    cadquery \
-    OCP \
-    trimesh \
+# Install Python packages for USDZ conversion. Keep this required so Docker
+# builds fail loudly if USDZ support is unavailable.
+RUN pip3 install --break-system-packages --no-cache-dir \
     numpy \
-    && python3 -c "from pxr import Usd; print('USD installed successfully')" \
-    || echo "WARNING: Some Python packages failed to install, USD/STEP conversion may not be available"
+    trimesh \
+    usd-core \
+    && python3 -c "from pxr import Usd; import numpy; import trimesh; print('USD installed successfully')"
+
+ARG INSTALL_CAD_SUPPORT=true
+ARG CAD_INSTALL_TIMEOUT_SECONDS=240
+
+# Install Python packages for STEP/CAD conversion (optional, allow failure)
+RUN if [ "$INSTALL_CAD_SUPPORT" = "true" ]; then \
+      timeout "${CAD_INSTALL_TIMEOUT_SECONDS}s" pip3 install --break-system-packages --no-cache-dir \
+        cadquery \
+        OCP \
+      && python3 -c "import cadquery; import OCP; print('CAD packages installed successfully')" \
+      || echo "WARNING: CAD Python packages failed to install or timed out, STEP/CAD conversion may not be available"; \
+    else \
+      echo "Skipping optional CAD Python packages; STEP/CAD conversion will not be available"; \
+    fi
 
 # Set working directory
 WORKDIR /app
@@ -66,8 +82,10 @@ RUN npm install --cache /tmp/.npm-cache
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN npm run build
+# Build TypeScript, then keep only runtime dependencies
+RUN npm run build \
+    && npm prune --omit=dev \
+    && npm cache clean --force
 
 # Create temp directories
 RUN mkdir -p temp/uploads temp/results

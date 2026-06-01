@@ -1,0 +1,171 @@
+services:
+  optimizer-api:
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      API_KEY: ${OPTIMIZER_API_KEY:-}
+      CLOUD_PROVIDER: ${CLOUD_PROVIDER:-tencent}
+      QUEUE_PROVIDER: ${QUEUE_PROVIDER:-tdmq-cmq}
+      STATE_STORE_PROVIDER: ${STATE_STORE_PROVIDER:-mysql}
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      CLOUD_LOCAL_OBJECT_ROOT: /app/data/cloud/objects
+      JOB_STORE_PATH: /app/data/cloud/jobs.json
+      ORDER_STORE_PATH: /app/data/cloud/orders.json
+      INVOICE_STORE_PATH: /app/data/cloud/invoices.json
+      TENCENT_REGION: ap-nanjing
+      COS_INPUT_BUCKET: model-optimizer-1251022382
+      COS_OUTPUT_BUCKET: model-optimizer-1251022382
+      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-https://cmq-nj.public.tencenttdmq.com}
+      QUEUE_NAME: ${QUEUE_NAME:-optimizer-jobs}
+      QUEUE_POLLING_WAIT_SECONDS: 10
+      DEFAULT_TASK_TYPE: model.optimize
+      JOB_MAX_ATTEMPTS: 3
+      JOB_TIMEOUT_SECONDS: 1800
+      JOB_LEASE_SECONDS: 300
+      EXPIRED_JOB_RECOVERY_INTERVAL_SECONDS: 30
+      BILLING_MODE: ${BILLING_MODE:-wechat_native}
+      PAYMENT_SERVICE_URL: ${PAYMENT_SERVICE_URL:-http://wechat-pay:3010}
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      DEFAULT_JOB_PRICE_CENTS: ${DEFAULT_JOB_PRICE_CENTS:-100}
+      RECHARGE_PACKAGES_CENTS: ${RECHARGE_PACKAGES_CENTS:-800,1800,3800,8800}
+      WEB_AUTH_SECRET: ${WEB_AUTH_SECRET:-}
+      WEB_AUTH_TOKEN_TTL_SECONDS: ${WEB_AUTH_TOKEN_TTL_SECONDS:-2592000}
+      WECHAT_LOGIN_MODE: ${WECHAT_LOGIN_MODE:-offiaccount}
+      WECHAT_OAUTH_APP_ID: ${WECHAT_OAUTH_APP_ID:-}
+      WECHAT_OAUTH_APP_SECRET: ${WECHAT_OAUTH_APP_SECRET:-}
+      WECHAT_OAUTH_REDIRECT_URL: ${WECHAT_OAUTH_REDIRECT_URL:-https://3dugc.com/api/v1/account/auth/wechat/callback}
+      WECHAT_OAUTH_SCOPE: ${WECHAT_OAUTH_SCOPE:-snsapi_userinfo}
+      WECHAT_OAUTH_STATE_TTL_SECONDS: ${WECHAT_OAUTH_STATE_TTL_SECONDS:-600}
+      WECHAT_PAY_NOTIFY_URL: ${WECHAT_PAY_NOTIFY_URL:-https://3dugc.com/api/v1/account/wallet/wechat/notify}
+      WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
+      INVOICE_ENABLED: ${INVOICE_ENABLED:-false}
+      INVOICE_PROVIDER: ${INVOICE_PROVIDER:-wechat_fapiao}
+      INVOICE_ITEM_NAME: ${INVOICE_ITEM_NAME:-3D模型优化服务}
+      WECHAT_FAPIAO_TAX_CODE: ${WECHAT_FAPIAO_TAX_CODE:-}
+      WECHAT_FAPIAO_GOODS_CATEGORY: ${WECHAT_FAPIAO_GOODS_CATEGORY:-}
+      WECHAT_FAPIAO_TAX_RATE_BPS: ${WECHAT_FAPIAO_TAX_RATE_BPS:-}
+      WECHAT_FAPIAO_SUB_MCH_ID: ${WECHAT_FAPIAO_SUB_MCH_ID:-}
+      WECHAT_PAY_SUB_MCH_ID: ${WECHAT_PAY_SUB_MCH_ID:-}
+      CALLBACK_TIMEOUT_SECONDS: 10
+      CALLBACK_MAX_ATTEMPTS: 6
+    volumes:
+      - optimizer-data:/app/data
+      - optimizer-temp:/app/temp
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - "traefik.http.routers.optimizer-api.rule=Host(`${OPTIMIZER_HOST:-optimizer.7dgame.com}`) || Host(`${OPTIMIZER_SITE_HOST:-3dugc.com}`) || Host(`${OPTIMIZER_SITE_WWW_HOST:-www.3dugc.com}`)"
+      - traefik.http.routers.optimizer-api.entrypoints=websecure
+      - traefik.http.routers.optimizer-api.tls=true
+      - traefik.http.routers.optimizer-api.tls.certresolver=letsencrypt
+      - traefik.http.routers.optimizer-api.service=optimizer-api
+      - traefik.http.services.optimizer-api.loadbalancer.server.port=3000
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  wechat-pay:
+    image: hkccr.ccs.tencentyun.com/plugins/wechat-pay:${WECHAT_PAY_IMAGE_TAG:-latest}
+    pull_policy: always
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3010
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      WECHAT_PAY_MODE: ${WECHAT_PAY_MODE:-direct}
+      WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
+      WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}
+      WECHAT_PAY_SP_APP_ID: ${WECHAT_PAY_SP_APP_ID:-}
+      WECHAT_PAY_SP_MCH_ID: ${WECHAT_PAY_SP_MCH_ID:-}
+      WECHAT_PAY_SUB_APP_ID: ${WECHAT_PAY_SUB_APP_ID:-}
+      WECHAT_PAY_SUB_MCH_ID: ${WECHAT_PAY_SUB_MCH_ID:-}
+      WECHAT_PAY_PRIVATE_KEY: ${WECHAT_PAY_PRIVATE_KEY:-}
+      WECHAT_PAY_PRIVATE_KEY_PATH: ${WECHAT_PAY_PRIVATE_KEY_PATH:-/run/secrets/wechat-pay/apiclient_key.pem}
+      WECHAT_PAY_CERT_SERIAL_NO: ${WECHAT_PAY_CERT_SERIAL_NO:-}
+      WECHAT_PAY_API_V3_KEY: ${WECHAT_PAY_API_V3_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY:-}
+      WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH: ${WECHAT_PAY_PLATFORM_PUBLIC_KEY_PATH:-/run/secrets/wechat-pay/wechatpay_public_key.pem}
+      WECHAT_PAY_PLATFORM_CERT: ${WECHAT_PAY_PLATFORM_CERT:-}
+      WECHAT_PAY_PLATFORM_CERT_PATH: ${WECHAT_PAY_PLATFORM_CERT_PATH:-}
+      WECHAT_PAY_PLATFORM_SERIAL_NO: ${WECHAT_PAY_PLATFORM_SERIAL_NO:-}
+      WECHAT_PAY_API_BASE_URL: ${WECHAT_PAY_API_BASE_URL:-https://api.mch.weixin.qq.com}
+      WECHAT_PAY_SUPPORT_FAPIAO: ${WECHAT_PAY_SUPPORT_FAPIAO:-false}
+    volumes:
+      - /opt/model-optimizer/wechat-pay:/run/secrets/wechat-pay:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  optimizer-dispatcher:
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
+    command: node dist/dispatcher/run-dispatcher.js
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      CLOUD_PROVIDER: tencent
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      TENCENT_REGION: ap-nanjing
+      DISPATCHER_PROVIDER: tencent-as
+      DISPATCHER_AS_GROUP_IDS: ${DISPATCHER_AS_GROUP_IDS:-asg-pj6qaput}
+      DISPATCHER_TASK_TYPE: ${DISPATCHER_TASK_TYPE:-model.optimize}
+      DISPATCHER_INTERVAL_SECONDS: ${DISPATCHER_INTERVAL_SECONDS:-30}
+      DISPATCHER_SLOTS_PER_INSTANCE: ${DISPATCHER_SLOTS_PER_INSTANCE:-1}
+      DISPATCHER_MIN_INSTANCES: ${DISPATCHER_MIN_INSTANCES:-0}
+      DISPATCHER_MAX_INSTANCES: ${DISPATCHER_MAX_INSTANCES:-3}
+      DISPATCHER_DRY_RUN: ${DISPATCHER_DRY_RUN:-false}
+    restart: unless-stopped
+
+  optimizer-monitor:
+    image: hkccr.ccs.tencentyun.com/plugins/3d-model-optimizer:${OPTIMIZER_IMAGE_TAG:-latest}
+    pull_policy: always
+    command: node dist/monitor/run-monitor.js
+    networks:
+      - proxy
+    environment:
+      NODE_ENV: production
+      CLOUD_PROVIDER: tencent
+      QUEUE_PROVIDER: tdmq-cmq
+      STATE_STORE_PROVIDER: mysql
+      DATABASE_URL: ${DATABASE_URL:-}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
+      DATABASE_SSL_REJECT_UNAUTHORIZED: ${DATABASE_SSL_REJECT_UNAUTHORIZED:-true}
+      TENCENT_REGION: ap-nanjing
+      QUEUE_ENDPOINT: ${QUEUE_ENDPOINT:-https://cmq-nj.public.tencenttdmq.com}
+      QUEUE_NAME: ${QUEUE_NAME:-optimizer-jobs}
+      MONITOR_INTERVAL_SECONDS: ${MONITOR_INTERVAL_SECONDS:-60}
+      MONITOR_QUEUE_BACKLOG_THRESHOLD: ${MONITOR_QUEUE_BACKLOG_THRESHOLD:-1}
+      MONITOR_WORKER_HEARTBEAT_STALE_SECONDS: ${MONITOR_WORKER_HEARTBEAT_STALE_SECONDS:-180}
+      MONITOR_ALARM_COOLDOWN_SECONDS: ${MONITOR_ALARM_COOLDOWN_SECONDS:-900}
+      MONITOR_TENCENT_CUSTOM_ALARM_ENABLED: ${MONITOR_TENCENT_CUSTOM_ALARM_ENABLED:-true}
+      MONITOR_ALARM_TITLE_PREFIX: ${MONITOR_ALARM_TITLE_PREFIX:-model-optimizer}
+    restart: unless-stopped
+
+volumes:
+  optimizer-data:
+  optimizer-temp:
+
+networks:
+  proxy:
+    external: true

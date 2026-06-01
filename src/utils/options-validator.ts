@@ -5,6 +5,7 @@
  */
 
 import {
+  DEFAULT_EXTENSION_OPTIONS,
   OptimizationOptions,
   SIMPLIFY_RATIO_RANGE,
   DRACO_COMPRESSION_LEVEL_RANGE,
@@ -24,6 +25,14 @@ function clamp(val: number, min: number, max: number): number {
 export function validateOptions(raw: OptimizationOptions): ValidationResult {
   const errors: string[] = [];
   const sanitized: OptimizationOptions = { ...raw };
+
+  if (sanitized.extensions) {
+    sanitized.extensions = {
+      ...DEFAULT_EXTENSION_OPTIONS,
+      ...sanitized.extensions,
+      preserveUnlit: sanitized.extensions.preserveUnlit !== false,
+    };
+  }
 
   // Simplify
   if (sanitized.simplify?.enabled) {
