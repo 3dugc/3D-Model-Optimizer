@@ -896,43 +896,62 @@ function displayModelInfo(a) {
   document.getElementById('meshInfo').innerHTML = `<div class="info-row"><span class="info-label">网格</span><span class="info-value">${a.meshes.count}</span></div><div class="info-row"><span class="info-label">三角形</span><span class="info-value">${a.meshes.totalTriangles.toLocaleString()}</span></div><div class="info-row"><span class="info-label">顶点</span><span class="info-value">${a.meshes.totalVertices.toLocaleString()}</span></div>`;
 }
 function updateHints(a) {
-  if (a.hasDraco) { document.getElementById('dracoHint').classList.remove('hidden'); document.getElementById('dracoEnabled').checked = false; } else document.getElementById('dracoHint').classList.add('hidden');
-  if (a.hasKTX2) { document.getElementById('ktx2Hint').classList.remove('hidden'); document.getElementById('textureEnabled').checked = false; } else document.getElementById('ktx2Hint').classList.add('hidden');
+  document.getElementById('dracoHint').classList.toggle('hidden', !a.hasDraco);
+  document.getElementById('ktx2Hint').classList.toggle('hidden', !a.hasKTX2);
 }
 
-// ===== Presets =====
-let activePreset = null;
-const presetDescriptions = {
-  fast: '快速模式：资源清理 + 顶点量化 + 轻度 Draco 压缩',
-  balanced: '均衡模式：全部优化，保留 75% 面数，ETC1S 纹理压缩',
-  maximum: '极限模式：激进压缩，50% 面数，最高 Draco 级别',
+// ===== Optimization mode =====
+let activeOptimizationMode = 'default';
+const defaultOptimizationOptions = {
+  clean: true,
+  removeUnusedNodes: true,
+  removeUnusedMaterials: true,
+  removeUnusedTextures: true,
+  merge: true,
+  simplify: false,
+  ratio: 0.5,
+  lockBorder: false,
+  quantize: false,
+  draco: true,
+  dracoLevel: 7,
+  texture: true,
+  texMode: 'ETC1S',
+  preserveUnlit: true,
 };
-const presetOptions = {
-  fast: { clean: true, merge: false, simplify: false, quantize: false, draco: true, dracoLevel: 3, texture: false, preserveUnlit: true },
-  balanced: { clean: true, merge: true, simplify: true, ratio: 0.75, quantize: false, draco: true, dracoLevel: 7, texture: true, texMode: 'ETC1S', preserveUnlit: true },
-  maximum: { clean: true, merge: true, simplify: true, ratio: 0.5, quantize: false, draco: true, dracoLevel: 10, texture: true, texMode: 'ETC1S', preserveUnlit: true },
-};
-document.querySelectorAll('.preset-btn').forEach(btn => {
+
+function applyOptimizationOptions(options) {
+  document.getElementById('cleanEnabled').checked = options.clean;
+  document.getElementById('removeUnusedNodes').checked = options.removeUnusedNodes;
+  document.getElementById('removeUnusedMaterials').checked = options.removeUnusedMaterials;
+  document.getElementById('removeUnusedTextures').checked = options.removeUnusedTextures;
+  document.getElementById('mergeEnabled').checked = options.merge;
+  document.getElementById('simplifyEnabled').checked = options.simplify;
+  document.getElementById('targetRatio').value = options.ratio;
+  document.getElementById('lockBorder').checked = options.lockBorder;
+  document.getElementById('quantizeEnabled').checked = options.quantize;
+  document.getElementById('dracoEnabled').checked = options.draco;
+  document.getElementById('compressionLevel').value = options.dracoLevel;
+  document.getElementById('textureEnabled').checked = options.texture;
+  document.getElementById('textureMode').value = options.texMode;
+  document.getElementById('preserveUnlitEnabled').checked = options.preserveUnlit;
+}
+
+function setOptimizationMode(mode) {
+  activeOptimizationMode = mode;
+  document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.optimizationMode === mode);
+  });
+  document.getElementById('customOptions').classList.toggle('hidden', mode !== 'custom');
+  if (mode === 'default') applyOptimizationOptions(defaultOptimizationOptions);
+}
+
+document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
   btn.addEventListener('click', function() {
-    const preset = this.dataset.preset;
-    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
-    if (activePreset === preset) { activePreset = null; document.getElementById('presetDesc').textContent = ''; return; }
-    activePreset = preset;
-    this.classList.add('active');
-    document.getElementById('presetDesc').textContent = presetDescriptions[preset];
-    const p = presetOptions[preset];
-    document.getElementById('cleanEnabled').checked = p.clean;
-    document.getElementById('mergeEnabled').checked = p.merge;
-    document.getElementById('simplifyEnabled').checked = p.simplify;
-    if (p.ratio) document.getElementById('targetRatio').value = p.ratio;
-    document.getElementById('quantizeEnabled').checked = p.quantize;
-    document.getElementById('dracoEnabled').checked = p.draco;
-    if (p.dracoLevel) document.getElementById('compressionLevel').value = p.dracoLevel;
-    document.getElementById('textureEnabled').checked = p.texture;
-    if (p.texMode) document.getElementById('textureMode').value = p.texMode;
-    document.getElementById('preserveUnlitEnabled').checked = p.preserveUnlit;
+    setOptimizationMode(this.dataset.optimizationMode);
   });
 });
+applyOptimizationOptions(defaultOptimizationOptions);
+setOptimizationMode(activeOptimizationMode);
 
 // ===== Optimize (SSE with progress) =====
 optimizeBtn.addEventListener('click', async () => {
@@ -947,7 +966,6 @@ optimizeBtn.addEventListener('click', async () => {
   document.getElementById('loadingText').textContent = '优化处理中...';
 
   const fd = new FormData(); fd.append('file', selectedFile);
-  if (activePreset) fd.append('preset', activePreset);
   fd.append('options', JSON.stringify(getOptions()));
 
   try {
