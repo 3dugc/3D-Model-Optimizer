@@ -91,6 +91,10 @@
           <div id="summaryBadges" class="mb-2"></div>
           <div id="basicInfo"></div>
           <div id="meshInfo" class="mt-1"></div>
+          <button class="btn btn-sm btn-outline-secondary w-100 mt-2 hidden" id="serverPreviewBtn">
+            <i class="bi bi-eye me-1"></i>查看转换预览
+          </button>
+          <div class="small text-muted mt-1 hidden" id="serverPreviewStatus"></div>
         </div>
 
         <!-- Options -->
@@ -103,7 +107,7 @@
               <button class="btn btn-sm btn-outline-secondary flex-fill optimization-mode-btn" data-optimization-mode="custom"><i class="bi bi-sliders me-1"></i>定制</button>
             </div>
           </div>
-          <div class="hidden" id="customOptions">
+          <div id="customOptions">
             <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="cleanEnabled" checked><label class="form-check-label small" for="cleanEnabled">资源清理</label></div>
             <div class="ps-4 mb-2">
               <div class="form-check"><input class="form-check-input" type="checkbox" id="removeUnusedNodes" checked><label class="form-check-label small text-muted" for="removeUnusedNodes">未使用节点</label></div>
@@ -112,7 +116,8 @@
             </div>
             <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="mergeEnabled" checked><label class="form-check-label small" for="mergeEnabled">Mesh 合并</label></div>
             <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="simplifyEnabled"><label class="form-check-label small" for="simplifyEnabled">网格减面</label></div>
-            <div class="d-flex align-items-center gap-2 ps-4 mb-1"><span class="text-muted small">比例</span><input type="number" class="form-control form-control-sm" id="targetRatio" value="0.5" min="0.1" max="1" step="0.1" style="width:70px;"></div>
+            <div class="d-flex align-items-center gap-2 ps-4 mb-1"><span class="text-muted small">比例</span><input type="number" class="form-control form-control-sm" id="targetRatio" value="0.5" min="0.01" max="1" step="0.01" style="width:70px;"></div>
+            <div class="small text-muted ps-4 mb-1" id="simplifyAutoHint">上传模型后自动设置</div>
             <div class="ps-4 mb-2"><div class="form-check"><input class="form-check-input" type="checkbox" id="lockBorder"><label class="form-check-label small text-muted" for="lockBorder">保留边界</label></div></div>
             <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="quantizeEnabled"><label class="form-check-label small" for="quantizeEnabled">顶点量化</label></div>
             <div class="form-check mb-1"><input class="form-check-input" type="checkbox" id="dracoEnabled" checked><label class="form-check-label small" for="dracoEnabled">Draco 压缩</label></div>
