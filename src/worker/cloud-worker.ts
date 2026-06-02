@@ -173,6 +173,7 @@ export class CloudWorker {
         completedAt: new Date().toISOString(),
         leaseExpiresAt: undefined,
         lastHeartbeatAt: undefined,
+        conversion: report.conversion,
         errorCode: undefined,
         errorMessage: undefined,
       });

@@ -54,6 +54,7 @@ export interface ResultMetadata {
   options?: Record<string, unknown>;
   canonicalOptions?: Record<string, unknown>;
   inputHash?: string;
+  inputHashKind?: 'raw-upload' | 'prepared-glb';
   optionsHash?: string;
   conversion?: object;
   originalSize?: number;
