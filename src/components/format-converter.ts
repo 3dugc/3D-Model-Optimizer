@@ -189,7 +189,7 @@ async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<v
  */
 async function isCollada2gltfAvailable(): Promise<boolean> {
   try {
-    await execFileAsync('COLLADA2GLTF', ['--help']);
+    await execFileAsync('which', ['COLLADA2GLTF']);
     return true;
   } catch {
     return false;
@@ -237,7 +237,7 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
  */
 async function isStepConverterAvailable(): Promise<boolean> {
   try {
-    await execFileAsync('python3', ['-c', "import trimesh; print('ok')"]);
+    await execFileAsync('python3', ['-c', "import cadquery; import trimesh; print('ok')"]);
     return true;
   } catch {
     return false;
@@ -245,14 +245,14 @@ async function isStepConverterAvailable(): Promise<boolean> {
 }
 
 /**
- * Convert STEP to GLB using Python trimesh/cadquery.
+ * Convert STEP to GLB using CadQuery/OpenCASCADE tessellation and trimesh export.
  */
 async function convertSTEPtoGLB(inputPath: string, outputPath: string): Promise<void> {
   const stepAvailable = await isStepConverterAvailable();
   
   if (!stepAvailable) {
     throw new Error(
-      'STEP conversion requires Python trimesh package. ' +
+      'STEP conversion requires Python trimesh + cadquery/OCP packages. ' +
       'Run in Docker or install with: pip install trimesh cadquery'
     );
   }
@@ -261,13 +261,28 @@ async function convertSTEPtoGLB(inputPath: string, outputPath: string): Promise<
   const pythonScript = `
 import sys
 import json
+import cadquery as cq
 import trimesh
 
 try:
-    mesh = trimesh.load(sys.argv[1])
-    
-    mesh.export(sys.argv[2], file_type='glb')
-    
+    model = cq.importers.importStep(sys.argv[1])
+    shapes = model.vals()
+    meshes = []
+    for shape in shapes:
+        vertices, faces = shape.tessellate(0.1, 0.1)
+        if not vertices or not faces:
+            continue
+        mesh = trimesh.Trimesh(
+            vertices=[[v.x, v.y, v.z] for v in vertices],
+            faces=faces,
+            process=False
+        )
+        if len(mesh.vertices) and len(mesh.faces):
+            meshes.append(mesh)
+    if not meshes:
+        raise RuntimeError("No tessellated geometry found in STEP file")
+    scene = trimesh.Scene(meshes)
+    scene.export(sys.argv[2], file_type='glb')
     print(json.dumps({"success": True}))
 except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}))
@@ -308,11 +323,33 @@ async function convertCADtoGLB(inputPath: string, outputPath: string, format: st
   const pythonScript = `
 import sys
 import json
+import cadquery as cq
 import trimesh
 
 try:
-    mesh = trimesh.load(sys.argv[1])
-    mesh.export(sys.argv[2], file_type='glb')
+    # CadQuery/OpenCASCADE can import STEP/STP reliably. Proprietary CAD
+    # formats such as CATPart/CATProduct/PRT/ASM require an external CAD
+    # translator; try the OpenCASCADE import path first so STEP-like inputs
+    # with nonstandard extensions still work, and return a precise error for
+    # truly unsupported proprietary files.
+    model = cq.importers.importStep(sys.argv[1])
+    shapes = model.vals()
+    meshes = []
+    for shape in shapes:
+        vertices, faces = shape.tessellate(0.1, 0.1)
+        if not vertices or not faces:
+            continue
+        mesh = trimesh.Trimesh(
+            vertices=[[v.x, v.y, v.z] for v in vertices],
+            faces=faces,
+            process=False
+        )
+        if len(mesh.vertices) and len(mesh.faces):
+            meshes.append(mesh)
+    if not meshes:
+        raise RuntimeError("No tessellated geometry found in CAD file")
+    scene = trimesh.Scene(meshes)
+    scene.export(sys.argv[2], file_type='glb')
     print(json.dumps({"success": True}))
 except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}))

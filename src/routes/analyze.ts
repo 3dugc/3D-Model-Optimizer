@@ -8,14 +8,12 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
 import { getDracoModules } from '../components/draco-singleton';
+import { getFileExtension } from '../components/format-converter';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
-import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
+import { decodeUploadFilename } from '../utils/model-input';
 import { OptimizationError, ERROR_CODES } from '../models/error';
 import { requireWebUser } from '../middleware';
 
@@ -32,6 +30,9 @@ interface ModelAnalysis {
   fileSize: number;
   format: string;
   converted: boolean;
+  analysisAvailable: boolean;
+  previewAvailable: boolean;
+  previewMessage?: string;
   conversionTime?: number;
   meshes: {
     count: number;
@@ -160,6 +161,8 @@ async function analyzeDocument(document: Document, filename: string, fileSize: n
     fileSize,
     format: 'GLB',
     converted: false,
+    analysisAvailable: true,
+    previewAvailable: true,
     meshes: {
       count: meshes.length,
       totalTriangles: Math.round(totalTriangles),
@@ -181,6 +184,35 @@ async function analyzeDocument(document: Document, filename: string, fileSize: n
     nodes: root.listNodes().length,
     scenes: root.listScenes().length,
     animations: root.listAnimations().length,
+  };
+}
+
+function isBrowserPreviewFormat(ext: string): boolean {
+  return ['.glb', '.gltf', '.obj', '.stl', '.usdz', '.fbx', '.dae'].includes(ext);
+}
+
+function buildLightAnalysis(filename: string, fileSize: number, ext: string): ModelAnalysis {
+  const format = ext ? ext.slice(1).toUpperCase() : 'UNKNOWN';
+  const previewAvailable = isBrowserPreviewFormat(ext);
+  return {
+    filename,
+    fileSize,
+    format,
+    converted: false,
+    analysisAvailable: false,
+    previewAvailable,
+    previewMessage: previewAvailable
+      ? '可尝试浏览器本地预览；深度分析将在弹性服务器优化任务中完成。'
+      : '该格式暂不支持浏览器预览，需提交弹性服务器转换和优化。',
+    meshes: { count: 0, totalTriangles: 0, totalVertices: 0, details: [] },
+    materials: { count: 0, details: [] },
+    textures: { count: 0, totalSize: 0, details: [] },
+    extensions: [],
+    hasDraco: false,
+    hasKTX2: false,
+    nodes: 0,
+    scenes: 0,
+    animations: 0,
   };
 }
 
@@ -214,8 +246,6 @@ async function analyzeDocument(document: Document, filename: string, fileSize: n
  *         description: Invalid file
  */
 router.post('/', requireWebUser, upload.single('file'), async (req: Request, res: Response, next: NextFunction) => {
-  const tempDir = path.join('./temp', `analyze-${uuidv4()}`);
-
   try {
     if (!req.file) {
       throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'No file uploaded', { field: 'file' });
@@ -223,36 +253,25 @@ router.post('/', requireWebUser, upload.single('file'), async (req: Request, res
 
     // Decode filename properly for UTF-8
     const originalFilename = decodeUploadFilename(req.file.originalname);
-    const prepared = await prepareModelInput({
-      inputPath: req.file.path,
-      scratchDir: tempDir,
-      originalFilename,
-      allowZip: true,
-    });
+    const ext = getFileExtension(originalFilename);
+    if (ext !== '.glb') {
+      res.json({ success: true, analysis: buildLightAnalysis(originalFilename, req.file.size, ext) });
+      return;
+    }
 
     // Read and analyze GLB
     const io = new NodeIO()
       .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu])
       .registerDependencies(await getDracoModules());
 
-    const document = await io.read(prepared.inputGlbPath);
+    const document = await io.read(req.file.path);
     const analysis = await analyzeDocument(document, originalFilename, req.file.size);
-
-    // Update with conversion info
-    analysis.format = prepared.conversion.originalFormat;
-    analysis.converted = prepared.conversion.converted;
-    if (prepared.conversion.conversionTime !== undefined) {
-      analysis.conversionTime = prepared.conversion.conversionTime;
-    }
 
     res.json({ success: true, analysis });
   } catch (error) {
     next(error);
   } finally {
-    await Promise.all([
-      fs.promises.rm(tempDir, { recursive: true, force: true }),
-      cleanupUploadedFile(req.file),
-    ]);
+    await cleanupUploadedFile(req.file);
   }
 });
 

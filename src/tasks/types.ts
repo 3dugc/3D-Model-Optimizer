@@ -32,6 +32,11 @@ export interface HeavyTaskReport {
   success: boolean;
   outputUri?: string;
   metrics?: Record<string, string | number | boolean>;
+  conversion?: {
+    converted: boolean;
+    originalFormat: string;
+    conversionTime?: number;
+  };
   errorCode?: string;
   errorMessage?: string;
 }

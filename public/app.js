@@ -6,8 +6,10 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 
-let selectedFile = null, currentTaskId = null, modelAnalysis = null;
+let selectedFile = null, currentTaskId = null, currentDownloadUrl = null, modelAnalysis = null;
 let webToken = localStorage.getItem('web_token') || '';
 let rechargePackagesCents = [800, 1800, 3800, 8800];
 let jobPriceCents = 100;
@@ -27,8 +29,8 @@ let wireframeMode = false, viewMode = 'split';
 let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
 let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
 
-const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.6/';
-const KTX2_TRANSCODER_PATH = 'https://unpkg.com/three@0.160.0/examples/jsm/libs/basis/';
+const DRACO_DECODER_PATH = '/vendor/draco/1.5.6/';
+const KTX2_TRANSCODER_PATH = '/vendor/basis/three-0.160.0/';
 
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
@@ -724,6 +726,7 @@ function createGltfLoader(side) {
   const loader = new GLTFLoader();
   const dracoLoader = new DRACOLoader();
   dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
+  dracoLoader.setDecoderConfig({ type: 'js' });
   loader.setDRACOLoader(dracoLoader);
 
   const renderer = side === 'left' ? leftRenderer : rightRenderer;
@@ -741,6 +744,10 @@ function loadModelFromFile(file, scene, side) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const ext = file.name.split('.').pop().toLowerCase();
+    const onError = (error) => {
+      URL.revokeObjectURL(url);
+      reject(error);
+    };
     const onLoad = (obj) => {
       let model = obj.scene || obj;
       const box = new THREE.Box3().setFromObject(model);
@@ -758,11 +765,11 @@ function loadModelFromFile(file, scene, side) {
       URL.revokeObjectURL(url); resolve(model);
     };
     if (ext === 'glb' || ext === 'gltf') {
-      createGltfLoader(side).load(url, onLoad, undefined, reject);
+      createGltfLoader(side).load(url, onLoad, undefined, onError);
     } else if (ext === 'obj') {
-      new OBJLoader().load(url, (obj) => { obj.traverse(c => { if (c.isMesh) c.material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 }); }); onLoad(obj); }, undefined, reject);
+      new OBJLoader().load(url, (obj) => { obj.traverse(c => { if (c.isMesh) c.material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 }); }); onLoad(obj); }, undefined, onError);
     } else if (ext === 'stl') {
-      new STLLoader().load(url, (geo) => { geo.computeVertexNormals(); const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 })); const g = new THREE.Group(); g.add(m); onLoad(g); }, undefined, reject);
+      new STLLoader().load(url, (geo) => { geo.computeVertexNormals(); const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 })); const g = new THREE.Group(); g.add(m); onLoad(g); }, undefined, onError);
     } else if (ext === 'usdz') {
       const reader = new FileReader();
       reader.onload = () => {
@@ -777,6 +784,10 @@ function loadModelFromFile(file, scene, side) {
       reader.readAsArrayBuffer(file);
       URL.revokeObjectURL(url);
       return;
+    } else if (ext === 'fbx') {
+      new FBXLoader().load(url, onLoad, undefined, onError);
+    } else if (ext === 'dae') {
+      new ColladaLoader().load(url, onLoad, undefined, onError);
     } else { URL.revokeObjectURL(url); reject(new Error('Format not supported for preview')); }
   });
 }
@@ -834,6 +845,29 @@ function requireLoginForAction(action) {
   return false;
 }
 
+function setPlaceholder(elementId, message) {
+  const placeholder = document.getElementById(elementId);
+  placeholder.style.display = 'flex';
+  placeholder.replaceChildren();
+  const span = document.createElement('span');
+  span.className = 'text-muted';
+  const icon = document.createElement('i');
+  icon.className = 'bi bi-eye-slash me-2';
+  span.append(icon, document.createTextNode(message));
+  placeholder.appendChild(span);
+}
+
+function displayLightModelInfo(file, ext, previewMessage) {
+  modelAnalysis = null;
+  const badgeText = ext === 'glb' ? '弹性服务器优化' : '弹性服务器转换与优化';
+  document.getElementById('summaryBadges').innerHTML = `<span class="badge text-bg-secondary me-1">${badgeText}</span>`;
+  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(file.size)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${ext.toUpperCase()}</span></div><div class="info-row"><span class="info-label">预览</span><span class="info-value">${previewMessage}</span></div>`;
+  document.getElementById('meshInfo').innerHTML = '<div class="info-row"><span class="info-label">处理</span><span class="info-value">点击优化后在弹性服务器完成转换和压缩</span></div>';
+  document.getElementById('dracoHint').classList.add('hidden');
+  document.getElementById('ktx2Hint').classList.add('hidden');
+  modelInfoSection.classList.remove('hidden');
+}
+
 // ===== Upload =====
 uploadArea.addEventListener('click', () => { if (requireLoginForAction('上传模型')) fileInput.click(); });
 uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
@@ -856,15 +890,25 @@ async function handleFile(file) {
   fileName.textContent = `${file.name} (${formatSize(file.size)})`;
   modelInfoSection.classList.add('hidden'); optionsSection.classList.add('hidden'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   leftModel = clearModel(leftScene, leftModel); document.getElementById('placeholderLeft').style.display = 'none'; document.getElementById('infoLeft').textContent = '';
-  const clientPreviewFormats = ['glb', 'gltf', 'obj', 'stl', 'usdz'];
+  const clientPreviewFormats = ['glb', 'gltf', 'obj', 'stl', 'usdz', 'fbx', 'dae'];
   if (clientPreviewFormats.includes(ext)) {
-    try { leftModel = await loadModelFromFile(file, leftScene, 'left'); fitCamera(leftCamera, leftControls, leftModel); if (wireframeMode) toggleWireframe(leftModel, true); } catch (e) { console.warn('Preview not available:', e); }
+    try {
+      leftModel = await loadModelFromFile(file, leftScene, 'left');
+      fitCamera(leftCamera, leftControls, leftModel);
+      if (wireframeMode) toggleWireframe(leftModel, true);
+      displayLightModelInfo(file, ext, '本地预览可用');
+    } catch (e) {
+      console.warn('Preview not available:', e);
+      setPlaceholder('placeholderLeft', '该文件无法预览，可提交弹性服务器转换和优化');
+      displayLightModelInfo(file, ext, '本地预览失败');
+    }
   } else {
-    document.getElementById('placeholderLeft').style.display = 'flex';
-    document.getElementById('placeholderLeft').innerHTML = '<span class="text-muted"><i class="bi bi-eye-slash me-2"></i>' + ext.toUpperCase() + ' 格式不支持客户端预览，优化后可查看 GLB</span>';
+    setPlaceholder('placeholderLeft', ext.toUpperCase() + ' 格式暂不支持浏览器预览，需提交弹性服务器转换和优化');
+    displayLightModelInfo(file, ext, '不支持浏览器预览');
   }
-  rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('infoRight').textContent = '';
-  await analyzeFile(file);
+  rightModel = clearModel(rightScene, rightModel); setPlaceholder('placeholderRight', '优化完成后显示结果预览'); document.getElementById('infoRight').textContent = '';
+  optionsSection.classList.remove('hidden');
+  optimizeBtn.disabled = false;
 }
 
 async function analyzeFile(file) {
@@ -942,81 +986,146 @@ document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
 applyOptimizationOptions(defaultOptimizationOptions);
 setOptimizationMode(activeOptimizationMode);
 
-// ===== Optimize (SSE with progress) =====
+function renderProgressStep(step, status, label, detail = '') {
+  const stepsEl = document.getElementById('progressSteps');
+  const stepId = `step-${step}`;
+  let el = document.getElementById(stepId);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = stepId;
+    el.className = 'step-item';
+    stepsEl.appendChild(el);
+  }
+
+  const icon = document.createElement('span');
+  const text = document.createElement('span');
+  text.className = 'flex-grow-1';
+  text.textContent = label;
+
+  icon.className = 'step-icon';
+  if (status === 'start') {
+    icon.classList.add('bg-warning-subtle', 'text-warning');
+    icon.innerHTML = '<div class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></div>';
+  } else if (status === 'done') {
+    icon.classList.add('bg-success-subtle', 'text-success');
+    icon.textContent = '✓';
+  } else if (status === 'error') {
+    icon.classList.add('bg-danger-subtle', 'text-danger');
+    icon.textContent = '✗';
+  } else {
+    icon.classList.add('bg-secondary-subtle', 'text-secondary');
+    icon.textContent = '•';
+  }
+
+  const nodes = [icon, text];
+  if (detail) {
+    const detailEl = document.createElement('span');
+    detailEl.className = status === 'error' ? 'text-danger small' : 'text-muted small';
+    detailEl.textContent = detail;
+    nodes.push(detailEl);
+  }
+  el.replaceChildren(...nodes);
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function pollElasticOptimizeJob(jobId) {
+  const startedAt = Date.now();
+  let lastStatus = '';
+  while (Date.now() - startedAt < 45 * 60 * 1000) {
+    const res = await fetch(`/api/v1/account/wallet/jobs/${jobId}`, { headers: getWebAuthHeaders() });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error?.message || '任务状态查询失败');
+    if (data.wallet) displayWallet(data.wallet);
+
+    const status = data.job?.status || 'unknown';
+    if (status !== lastStatus) {
+      lastStatus = status;
+      if (status === 'queued') {
+        renderProgressStep('queue', 'done', '任务已进入弹性队列');
+        renderProgressStep('worker', 'start', '等待弹性 Worker 接单');
+        document.getElementById('loadingText').textContent = '等待弹性 Worker 接单...';
+      } else if (status === 'processing') {
+        renderProgressStep('worker', 'start', '弹性 Worker 优化中');
+        document.getElementById('loadingText').textContent = '弹性 Worker 正在优化模型...';
+      } else if (status === 'retry_wait') {
+        renderProgressStep('worker', 'start', 'Worker 临时失败，等待重试');
+        document.getElementById('loadingText').textContent = '任务等待自动重试...';
+      } else if (status === 'succeeded') {
+        renderProgressStep('worker', 'done', '弹性 Worker 优化完成');
+      } else if (status === 'failed' || status === 'cancelled') {
+        renderProgressStep('worker', 'error', status === 'cancelled' ? '任务已取消' : '弹性优化失败', data.job?.errorMessage || '');
+      }
+    }
+
+    if (status === 'succeeded') {
+      if (!data.result) throw new Error('云端任务已完成，但结果报告暂不可用');
+      return data.result;
+    }
+    if (status === 'failed') throw new Error(data.job?.errorMessage || '云端优化失败');
+    if (status === 'cancelled') throw new Error('任务已取消');
+
+    await sleep(status === 'processing' ? 2500 : 2000);
+  }
+  throw new Error('任务处理超时，请稍后在下载区查看结果');
+}
+
+// ===== Optimize (elastic cloud job) =====
 optimizeBtn.addEventListener('click', async () => {
   if (!selectedFile) return;
   if (!requireLoginForAction('优化模型')) return;
   loading.classList.add('show'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   document.getElementById('progressSteps').innerHTML = '';
-  document.getElementById('loadingText').textContent = '优化处理中...';
+  document.getElementById('loadingText').textContent = '正在提交弹性优化任务...';
+  currentTaskId = null;
+  currentDownloadUrl = null;
 
   const fd = new FormData(); fd.append('file', selectedFile);
   fd.append('options', JSON.stringify(getOptions()));
 
   try {
-    const res = await fetch('/api/optimize/stream', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
-    if (!res.ok || !res.body) {
-      const data = await res.json().catch(() => null);
-      throw new Error(data?.error?.message || '优化请求失败');
-    }
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalResult = null;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-      let currentEvent = '';
-      for (const line of lines) {
-        if (line.startsWith('event: ')) currentEvent = line.slice(7);
-        else if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (currentEvent === 'progress') {
-              const stepsEl = document.getElementById('progressSteps');
-              const stepId = `step-${data.step}`;
-              let el = document.getElementById(stepId);
-              if (data.status === 'start') {
-                if (!el) {
-                  el = document.createElement('div');
-                  el.id = stepId;
-                  el.className = 'step-item';
-                  stepsEl.appendChild(el);
-                }
-                el.innerHTML = `<span class="step-icon bg-warning-subtle text-warning"><div class="spinner-border spinner-border-sm" style="width:12px;height:12px;border-width:2px;"></div></span><span class="flex-grow-1">${data.stepName || data.step}</span>`;
-                document.getElementById('loadingText').textContent = `正在执行: ${data.stepName || data.step}`;
-              } else if (data.status === 'done') {
-                if (el) el.innerHTML = `<span class="step-icon bg-success-subtle text-success">✓</span><span class="flex-grow-1">${data.stepName || data.step}</span><span class="text-muted small">${data.duration || 0}ms</span>`;
-              } else if (data.status === 'error') {
-                if (el) el.innerHTML = `<span class="step-icon bg-danger-subtle text-danger">✗</span><span class="flex-grow-1">${data.stepName || data.step}</span><span class="text-danger small">${data.error || ''}</span>`;
-              }
-            } else if (currentEvent === 'result') {
-              finalResult = data;
-            } else if (currentEvent === 'wallet') {
-              if (data.wallet) displayWallet(data.wallet);
-            } else if (currentEvent === 'error') {
-              showError(`优化失败: ${data.message || '未知错误'}`);
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    if (finalResult && finalResult.success) {
-      if (finalResult.wallet) displayWallet(finalResult.wallet);
-      currentTaskId = finalResult.taskId; displayResult(finalResult); resultSection.classList.remove('hidden');
+    renderProgressStep('upload', 'start', '上传模型到云端任务存储');
+    const res = await fetch('/api/v1/account/wallet/optimize-jobs', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
+    const created = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(created?.error?.message || '优化任务创建失败');
+    if (created.wallet) displayWallet(created.wallet);
+    renderProgressStep('upload', 'done', '模型已上传到云端任务存储');
+    if (created.reused && created.result) {
+      renderProgressStep('queue', 'done', '命中相同模型的历史结果');
+      const reusedResult = created.result;
+      if (reusedResult.wallet) displayWallet(reusedResult.wallet);
+      currentTaskId = reusedResult.taskId;
+      currentDownloadUrl = reusedResult.downloadUrl || `/api/v1/account/wallet/jobs/${reusedResult.taskId}/result-file`;
+      displayResult(reusedResult); resultSection.classList.remove('hidden');
       loadDownloadList();
       rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'none';
       try {
-        const optimizedFile = await fetchOptimizedFile(finalResult.taskId);
+        const optimizedFile = await fetchOptimizedFile(reusedResult.taskId, currentDownloadUrl);
         rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
         if (wireframeMode) toggleWireframe(rightModel, true);
         if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
-      } catch (e) { console.warn('Could not load optimized preview:', e); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('placeholderRight').textContent = '预览不可用'; }
+      } catch (e) { console.warn('Could not load optimized preview:', e); setPlaceholder('placeholderRight', '优化结果预览不可用，可下载文件查看'); }
+      return;
+    }
+    renderProgressStep('queue', 'done', '任务已进入弹性队列');
+
+    const finalResult = await pollElasticOptimizeJob(created.job.id);
+
+    if (finalResult && finalResult.success) {
+      if (finalResult.wallet) displayWallet(finalResult.wallet);
+      currentTaskId = finalResult.taskId;
+      currentDownloadUrl = finalResult.downloadUrl || `/api/v1/account/wallet/jobs/${finalResult.taskId}/result-file`;
+      displayResult(finalResult); resultSection.classList.remove('hidden');
+      loadDownloadList();
+      rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'none';
+      try {
+        const optimizedFile = await fetchOptimizedFile(finalResult.taskId, currentDownloadUrl);
+        rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
+        if (wireframeMode) toggleWireframe(rightModel, true);
+        if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
+      } catch (e) { console.warn('Could not load optimized preview:', e); setPlaceholder('placeholderRight', '优化结果预览不可用，可下载文件查看'); }
     } else if (finalResult) {
       showError(`优化失败: ${finalResult.error || '未知错误'}`);
     }
@@ -1038,8 +1147,8 @@ function displayResult(data) {
   document.getElementById('stepsList').innerHTML = html;
 }
 
-async function fetchOptimizedFile(taskId) {
-  const res = await fetch(`/api/download/${taskId}`, { headers: getWebAuthHeaders() });
+async function fetchOptimizedFile(taskId, downloadUrl = null) {
+  const res = await fetch(downloadUrl || `/api/download/${taskId}`, { headers: getWebAuthHeaders() });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error?.message || '下载优化文件失败');
@@ -1062,7 +1171,7 @@ function saveFile(file) {
 downloadBtn.addEventListener('click', async () => {
   if (!currentTaskId) return;
   try {
-    const file = await fetchOptimizedFile(currentTaskId);
+    const file = await fetchOptimizedFile(currentTaskId, currentDownloadUrl);
     saveFile(file);
   } catch (error) {
     showError(error.message);
