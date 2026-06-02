@@ -959,6 +959,9 @@ function getAutoSimplifyRecommendation(totalTriangles) {
 function renderSimplifyAutoHint(recommendation = currentSimplifyRecommendation) {
   const hint = document.getElementById('simplifyAutoHint');
   if (!hint) return;
+  const showAutoHint = activeOptimizationMode === 'default';
+  hint.classList.toggle('hidden', !showAutoHint);
+  if (!showAutoHint) return;
   hint.textContent = recommendation?.hint || '上传模型后自动设置';
 }
 
