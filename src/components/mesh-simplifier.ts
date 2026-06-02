@@ -165,7 +165,7 @@ function validateOptions(options: SimplifyOptions): void {
  *
  * @param document - The gltf-transform Document to process
  * @param options - Simplification options including:
- *   - targetRatio: Target ratio of triangles to keep (0.1 - 1.0)
+ *   - targetRatio: Target ratio of triangles to keep (0.01 - 1.0)
  *   - targetCount: Target number of triangles
  *   - error: Error threshold for simplification quality (0.0 - 1.0)
  *   - lockBorder: Whether to preserve boundary edges

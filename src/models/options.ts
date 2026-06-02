@@ -27,7 +27,7 @@ export interface SimplifyOptions {
 
   /**
    * Target ratio for mesh simplification.
-   * Value range: 0.1 - 1.0 (10% to 100% of original triangles).
+   * Value range: 0.01 - 1.0 (1% to 100% of original triangles).
    * Either targetRatio or targetCount should be specified, not both.
    *
    * @example 0.5 // Reduce to 50% of original triangles
@@ -363,7 +363,7 @@ export const DEFAULT_EXTENSION_OPTIONS: Required<ExtensionOptions> = {
  * Valid range for simplify target ratio.
  */
 export const SIMPLIFY_RATIO_RANGE = {
-  min: 0.1,
+  min: 0.01,
   max: 1.0,
 } as const;
 

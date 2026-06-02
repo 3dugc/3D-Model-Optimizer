@@ -116,7 +116,7 @@ const swaggerOptions: swaggerJsdoc.Options = {
               description: 'Mesh simplification options',
               properties: {
                 enabled: { type: 'boolean', description: 'Enable mesh simplification' },
-                targetRatio: { type: 'number', minimum: 0.1, maximum: 1.0, description: 'Target ratio (0.1-1.0)' },
+                targetRatio: { type: 'number', minimum: 0.01, maximum: 1.0, description: 'Target ratio (0.01-1.0)' },
                 targetCount: { type: 'integer', description: 'Target triangle count' },
                 error: { type: 'number', minimum: 0, maximum: 1, description: 'Error threshold (0.0-1.0)' },
                 lockBorder: { type: 'boolean', description: 'Preserve boundary edges' },
