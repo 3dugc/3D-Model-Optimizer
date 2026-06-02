@@ -28,9 +28,20 @@ let wechatLoginPollTimer = null;
 let wireframeMode = false, viewMode = 'split';
 let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
 let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
+let currentSimplifyRecommendation = null;
 
 const DRACO_DECODER_PATH = '/vendor/draco/1.5.6/';
 const KTX2_TRANSCODER_PATH = '/vendor/basis/three-0.160.0/';
+
+const AUTO_SIMPLIFY_NOOP_TRIANGLES = 10000;
+const AUTO_SIMPLIFY_RULES = [
+  { max: 30000, target: (triangles) => Math.round(10000 + ((triangles - 10000) / 20000) * 5000) },
+  { max: 80000, target: 20000 },
+  { max: 150000, target: 30000 },
+  { max: 300000, target: 45000 },
+  { max: 600000, target: 60000 },
+  { max: Infinity, target: 80000 },
+];
 
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
@@ -47,6 +58,8 @@ const downloadListEmpty = document.getElementById('downloadListEmpty');
 const refreshDownloadsBtn = document.getElementById('refreshDownloadsBtn');
 const modelInfoSection = document.getElementById('modelInfoSection');
 const optionsSection = document.getElementById('optionsSection');
+const serverPreviewBtn = document.getElementById('serverPreviewBtn');
+const serverPreviewStatus = document.getElementById('serverPreviewStatus');
 
 function renderBuildVersion() {
   const versionEl = document.getElementById('buildVersion');
@@ -63,6 +76,20 @@ function renderBuildVersion() {
 
 function getWebAuthHeaders() { return webToken ? { 'Authorization': `Bearer ${webToken}` } : {}; }
 function formatMoney(cents) { return `¥${(Number(cents || 0) / 100).toFixed(2)}`; }
+function formatCount(value) { return Math.round(Number(value) || 0).toLocaleString(); }
+function formatRatio(value) {
+  const rounded = Math.max(0.001, Math.min(1, Number(value) || 1));
+  return rounded.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char]);
+}
 function base64Url(buffer) {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)))
     .replace(/\+/g, '-')
@@ -740,6 +767,27 @@ function createGltfLoader(side) {
   return loader;
 }
 
+function collectMeshStats(model) {
+  const stats = { count: 0, totalTriangles: 0, totalVertices: 0 };
+  model.traverse(child => {
+    if (!child.isMesh || !child.geometry) return;
+    const geometry = child.geometry;
+    const vertices = geometry.attributes.position?.count || 0;
+    const triangles = geometry.index ? geometry.index.count / 3 : vertices / 3;
+    stats.count += 1;
+    stats.totalTriangles += triangles;
+    stats.totalVertices += vertices;
+  });
+  stats.totalTriangles = Math.round(stats.totalTriangles);
+  stats.totalVertices = Math.round(stats.totalVertices);
+  return stats;
+}
+
+function renderViewerStats(side, stats) {
+  document.getElementById(side === 'left' ? 'infoLeft' : 'infoRight').textContent =
+    `△ ${formatCount(stats.totalTriangles)} | ⬡ ${formatCount(stats.totalVertices)}`;
+}
+
 function loadModelFromFile(file, scene, side) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -759,9 +807,9 @@ function loadModelFromFile(file, scene, side) {
       model.position.sub(center.multiplyScalar(scale));
       model.position.y -= (box.min.y * scale);
       scene.add(model);
-      let tris = 0, verts = 0;
-      model.traverse(child => { if (child.isMesh && child.geometry) { const g = child.geometry; tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3; verts += g.attributes.position?.count || 0; } });
-      document.getElementById(side === 'left' ? 'infoLeft' : 'infoRight').textContent = `△ ${Math.round(tris).toLocaleString()} | ⬡ ${Math.round(verts).toLocaleString()}`;
+      const meshStats = collectMeshStats(model);
+      model.userData.meshStats = meshStats;
+      renderViewerStats(side, meshStats);
       URL.revokeObjectURL(url); resolve(model);
     };
     if (ext === 'glb' || ext === 'gltf') {
@@ -800,9 +848,9 @@ function loadModelFromUrl(url, scene, side) {
       const maxDim = Math.max(size.x, size.y, size.z); const scale = 3 / maxDim;
       model.scale.setScalar(scale); model.position.sub(center.multiplyScalar(scale)); model.position.y -= (box.min.y * scale);
       scene.add(model);
-      let tris = 0, verts = 0;
-      model.traverse(child => { if (child.isMesh && child.geometry) { const g = child.geometry; tris += g.index ? g.index.count / 3 : (g.attributes.position?.count || 0) / 3; verts += g.attributes.position?.count || 0; } });
-      document.getElementById(side === 'left' ? 'infoLeft' : 'infoRight').textContent = `△ ${Math.round(tris).toLocaleString()} | ⬡ ${Math.round(verts).toLocaleString()}`;
+      const meshStats = collectMeshStats(model);
+      model.userData.meshStats = meshStats;
+      renderViewerStats(side, meshStats);
       resolve(model);
     }, undefined, reject);
   });
@@ -857,15 +905,173 @@ function setPlaceholder(elementId, message) {
   placeholder.appendChild(span);
 }
 
-function displayLightModelInfo(file, ext, previewMessage) {
+function resetServerPreview() {
+  serverPreviewBtn.classList.add('hidden');
+  serverPreviewBtn.disabled = false;
+  serverPreviewStatus.classList.add('hidden');
+  serverPreviewStatus.textContent = '';
+}
+
+function showServerPreviewButton(statusText = '') {
+  serverPreviewBtn.classList.remove('hidden');
+  serverPreviewBtn.disabled = false;
+  serverPreviewStatus.classList.toggle('hidden', !statusText);
+  serverPreviewStatus.textContent = statusText;
+}
+
+function setServerPreviewStatus(statusText, { loading = false, keepButton = true } = {}) {
+  serverPreviewBtn.classList.toggle('hidden', !keepButton);
+  serverPreviewBtn.disabled = loading;
+  serverPreviewStatus.classList.toggle('hidden', !statusText);
+  serverPreviewStatus.textContent = statusText || '';
+}
+
+function getAutoSimplifyRecommendation(totalTriangles) {
+  const triangles = Math.round(Number(totalTriangles) || 0);
+  if (triangles <= 0) {
+    return {
+      enabled: false,
+      sourceTriangles: 0,
+      targetCount: undefined,
+      targetRatio: 0.5,
+      hint: '暂无面数数据，保持默认不减面',
+    };
+  }
+  if (triangles <= AUTO_SIMPLIFY_NOOP_TRIANGLES) {
+    return {
+      enabled: false,
+      sourceTriangles: triangles,
+      targetCount: triangles,
+      targetRatio: 1,
+      hint: `${formatCount(AUTO_SIMPLIFY_NOOP_TRIANGLES)} 三角面以下不减面`,
+    };
+  }
+
+  const rule = AUTO_SIMPLIFY_RULES.find(item => triangles <= item.max) || AUTO_SIMPLIFY_RULES[AUTO_SIMPLIFY_RULES.length - 1];
+  const rawTarget = typeof rule.target === 'function' ? rule.target(triangles) : rule.target;
+  const targetCount = Math.max(1, Math.min(triangles - 1, rawTarget));
+  const targetRatio = targetCount / triangles;
+  return {
+    enabled: true,
+    sourceTriangles: triangles,
+    targetCount,
+    targetRatio,
+    hint: `自动目标 ${formatCount(targetCount)} 三角面，比例 ${formatRatio(targetRatio)}`,
+  };
+}
+
+function renderSimplifyAutoHint(recommendation = currentSimplifyRecommendation) {
+  const hint = document.getElementById('simplifyAutoHint');
+  if (!hint) return;
+  hint.textContent = recommendation?.hint || '上传模型后自动设置';
+}
+
+function applySimplifyOptionFields(options) {
+  const targetRatioInput = document.getElementById('targetRatio');
+  document.getElementById('simplifyEnabled').checked = options.simplify;
+  targetRatioInput.value = formatRatio(options.ratio);
+  targetRatioInput.dataset.autoTargetRatio = formatRatio(options.ratio);
+  if (options.targetCount && options.simplify) {
+    targetRatioInput.dataset.autoTargetCount = String(options.targetCount);
+  } else {
+    delete targetRatioInput.dataset.autoTargetCount;
+  }
+  document.getElementById('lockBorder').checked = options.lockBorder;
+  renderSimplifyAutoHint();
+}
+
+function getModelAwareDefaultOptions() {
+  const recommendation = currentSimplifyRecommendation;
+  return {
+    ...baseOptimizationOptions,
+    simplify: recommendation?.enabled ?? false,
+    ratio: recommendation?.targetRatio ?? baseOptimizationOptions.ratio,
+    targetCount: recommendation?.enabled ? recommendation.targetCount : undefined,
+  };
+}
+
+function applyModelDrivenSimplifyOptions({ preserveOtherOptions = activeOptimizationMode === 'custom' } = {}) {
+  const options = getModelAwareDefaultOptions();
+  if (preserveOtherOptions) {
+    applySimplifyOptionFields(options);
+  } else {
+    applyOptimizationOptions(options);
+  }
+}
+
+function updateAutoSimplifyFromTriangles(totalTriangles) {
+  currentSimplifyRecommendation = getAutoSimplifyRecommendation(totalTriangles);
+  applyModelDrivenSimplifyOptions();
+}
+
+function clearAutoSimplifyRecommendation(options = {}) {
+  currentSimplifyRecommendation = null;
+  applyModelDrivenSimplifyOptions(options);
+}
+
+function createMeshInfoHtml(meshes, recommendation = currentSimplifyRecommendation) {
+  const rows = [
+    `<div class="info-row"><span class="info-label">网格</span><span class="info-value">${formatCount(meshes.count)}</span></div>`,
+    `<div class="info-row"><span class="info-label">三角形</span><span class="info-value">${formatCount(meshes.totalTriangles)}</span></div>`,
+    `<div class="info-row"><span class="info-label">顶点</span><span class="info-value">${formatCount(meshes.totalVertices)}</span></div>`,
+  ];
+  if (recommendation?.sourceTriangles > 0) {
+    rows.push(
+      recommendation.enabled
+        ? `<div class="info-row"><span class="info-label">减面目标</span><span class="info-value">${formatCount(recommendation.targetCount)} (${formatRatio(recommendation.targetRatio)})</span></div>`
+        : `<div class="info-row"><span class="info-label">减面目标</span><span class="info-value">不减面</span></div>`
+    );
+  }
+  return rows.join('');
+}
+
+function displayLightModelInfo(file, ext, previewMessage, meshStats = null) {
   modelAnalysis = null;
   const badgeText = ext === 'glb' ? '弹性服务器优化' : '弹性服务器转换与优化';
   document.getElementById('summaryBadges').innerHTML = `<span class="badge text-bg-secondary me-1">${badgeText}</span>`;
-  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(file.size)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${ext.toUpperCase()}</span></div><div class="info-row"><span class="info-label">预览</span><span class="info-value">${previewMessage}</span></div>`;
-  document.getElementById('meshInfo').innerHTML = '<div class="info-row"><span class="info-label">处理</span><span class="info-value">点击优化后在弹性服务器完成转换和压缩</span></div>';
+  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(file.size)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${escapeHtml(ext.toUpperCase())}</span></div><div class="info-row"><span class="info-label">预览</span><span class="info-value">${escapeHtml(previewMessage)}</span></div>`;
+  document.getElementById('meshInfo').innerHTML = meshStats
+    ? createMeshInfoHtml(meshStats)
+    : '<div class="info-row"><span class="info-label">处理</span><span class="info-value">点击优化后在弹性服务器完成转换和压缩</span></div>';
   document.getElementById('dracoHint').classList.add('hidden');
   document.getElementById('ktx2Hint').classList.add('hidden');
   modelInfoSection.classList.remove('hidden');
+}
+
+async function loadServerConvertedPreview() {
+  if (!selectedFile) return;
+  const fileForRequest = selectedFile;
+  setServerPreviewStatus('正在生成转换预览...', { loading: true });
+  const fd = new FormData();
+  fd.append('file', fileForRequest);
+
+  try {
+    const res = await fetch('/api/analyze/preview', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw new Error(data?.error?.message || '转换预览生成失败');
+    }
+    const blob = await res.blob();
+    if (selectedFile !== fileForRequest) return;
+
+    const previewFile = new File([blob], `preview-${fileForRequest.name.replace(/\.[^.]+$/, '')}.glb`, {
+      type: blob.type || 'model/gltf-binary',
+    });
+    leftModel = clearModel(leftScene, leftModel);
+    document.getElementById('placeholderLeft').style.display = 'none';
+    leftModel = await loadModelFromFile(previewFile, leftScene, 'left');
+    fitCamera(leftCamera, leftControls, leftModel);
+    if (wireframeMode) toggleWireframe(leftModel, true);
+    const meshStats = leftModel.userData?.meshStats;
+    if (meshStats?.totalTriangles > 0) {
+      updateAutoSimplifyFromTriangles(meshStats.totalTriangles);
+      document.getElementById('meshInfo').innerHTML = createMeshInfoHtml(meshStats);
+    }
+    setServerPreviewStatus('转换预览已加载', { loading: false, keepButton: false });
+  } catch (error) {
+    console.warn('Server converted preview unavailable:', error);
+    setServerPreviewStatus(error.message || '转换预览生成失败', { loading: false });
+  }
 }
 
 // ===== Upload =====
@@ -889,20 +1095,27 @@ async function handleFile(file) {
   selectedFile = file;
   currentTaskId = null;
   currentDownloadUrl = null;
+  clearAutoSimplifyRecommendation({ preserveOtherOptions: false });
+  setOptionsEditable(activeOptimizationMode === 'custom');
+  resetServerPreview();
   fileName.textContent = `${file.name} (${formatSize(file.size)})`;
   modelInfoSection.classList.add('hidden'); optionsSection.classList.add('hidden'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   leftModel = clearModel(leftScene, leftModel); document.getElementById('placeholderLeft').style.display = 'none'; document.getElementById('infoLeft').textContent = '';
   const clientPreviewFormats = ['glb', 'gltf', 'obj', 'stl', 'usdz', 'fbx', 'dae'];
+  let needsServerAnalysis = !clientPreviewFormats.includes(ext);
   if (clientPreviewFormats.includes(ext)) {
     try {
       leftModel = await loadModelFromFile(file, leftScene, 'left');
       fitCamera(leftCamera, leftControls, leftModel);
       if (wireframeMode) toggleWireframe(leftModel, true);
-      displayLightModelInfo(file, ext, '本地预览可用');
+      const meshStats = leftModel.userData?.meshStats;
+      if (meshStats?.totalTriangles > 0) updateAutoSimplifyFromTriangles(meshStats.totalTriangles);
+      displayLightModelInfo(file, ext, '本地预览可用', meshStats);
     } catch (e) {
       console.warn('Preview not available:', e);
       setPlaceholder('placeholderLeft', '该文件无法预览，可提交弹性服务器转换和优化');
       displayLightModelInfo(file, ext, '本地预览失败');
+      needsServerAnalysis = true;
     }
   } else {
     setPlaceholder('placeholderLeft', ext.toUpperCase() + ' 格式暂不支持浏览器预览，需提交弹性服务器转换和优化');
@@ -911,6 +1124,11 @@ async function handleFile(file) {
   rightModel = clearModel(rightScene, rightModel); setPlaceholder('placeholderRight', '优化完成后显示结果预览'); document.getElementById('infoRight').textContent = '';
   optionsSection.classList.remove('hidden');
   optimizeBtn.disabled = false;
+  if (needsServerAnalysis) {
+    optimizeBtn.disabled = true;
+    await analyzeFile(file);
+    optimizeBtn.disabled = false;
+  }
 }
 
 async function analyzeFile(file) {
@@ -919,16 +1137,37 @@ async function analyzeFile(file) {
   try {
     const res = await fetch('/api/analyze', { method: 'POST', body: fd, headers: getWebAuthHeaders() });
     const data = await res.json();
-    if (data.success) { modelAnalysis = data.analysis; displayModelInfo(data.analysis); modelInfoSection.classList.remove('hidden'); optionsSection.classList.remove('hidden'); optimizeBtn.disabled = false; updateHints(data.analysis); }
-    else showError(`分析失败: ${data.error?.message || '未知错误'}`);
-  } catch (err) { showError(`分析请求失败: ${err.message}`); }
-  finally { analyzeLoading.classList.remove('show'); }
+    if (data.success) {
+      modelAnalysis = data.analysis;
+      displayModelInfo(data.analysis);
+      modelInfoSection.classList.remove('hidden');
+      optionsSection.classList.remove('hidden');
+      optimizeBtn.disabled = false;
+      updateHints(data.analysis);
+      return true;
+    }
+    document.getElementById('meshInfo').innerHTML = `<div class="info-row"><span class="info-label">深度分析</span><span class="info-value">${escapeHtml(data.error?.message || '暂不可用')}</span></div>`;
+  } catch (err) {
+    console.warn('Analyze request unavailable:', err);
+    document.getElementById('meshInfo').innerHTML = '<div class="info-row"><span class="info-label">深度分析</span><span class="info-value">暂不可用</span></div>';
+  } finally {
+    analyzeLoading.classList.remove('show');
+  }
+  return false;
 }
 
 function displayModelInfo(a) {
+  if (a.meshes?.totalTriangles > 0) updateAutoSimplifyFromTriangles(a.meshes.totalTriangles);
+  if (a.converted === true && a.analysisAvailable === true && !leftModel) {
+    showServerPreviewButton('服务器已完成面数分析，可提交优化。');
+  } else if (leftModel || a.converted !== true) {
+    resetServerPreview();
+  }
   document.getElementById('summaryBadges').innerHTML = `<span class="badge ${a.hasDraco ? 'text-bg-success' : 'text-bg-warning'} me-1">${a.hasDraco ? '✓ Draco' : '✗ Draco'}</span><span class="badge ${a.hasKTX2 ? 'text-bg-info' : 'text-bg-danger'}">${a.hasKTX2 ? '✓ KTX2' : '✗ KTX2'}</span>`;
-  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(a.fileSize)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${a.format}</span></div><div class="info-row"><span class="info-label">节点</span><span class="info-value">${a.nodes}</span></div><div class="info-row"><span class="info-label">纹理</span><span class="info-value">${a.textures.count} (${formatSize(a.textures.totalSize)})</span></div>`;
-  document.getElementById('meshInfo').innerHTML = `<div class="info-row"><span class="info-label">网格</span><span class="info-value">${a.meshes.count}</span></div><div class="info-row"><span class="info-label">三角形</span><span class="info-value">${a.meshes.totalTriangles.toLocaleString()}</span></div><div class="info-row"><span class="info-label">顶点</span><span class="info-value">${a.meshes.totalVertices.toLocaleString()}</span></div>`;
+  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(a.fileSize)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${escapeHtml(a.format)}</span></div>${a.previewMessage ? `<div class="info-row"><span class="info-label">分析</span><span class="info-value">${escapeHtml(a.previewMessage)}</span></div>` : `<div class="info-row"><span class="info-label">节点</span><span class="info-value">${a.nodes}</span></div>`}<div class="info-row"><span class="info-label">纹理</span><span class="info-value">${a.textures.count} (${formatSize(a.textures.totalSize)})</span></div>`;
+  document.getElementById('meshInfo').innerHTML = a.meshes?.totalTriangles > 0
+    ? createMeshInfoHtml(a.meshes)
+    : '<div class="info-row"><span class="info-label">面数分析</span><span class="info-value">暂不可用</span></div>';
 }
 function updateHints(a) {
   document.getElementById('dracoHint').classList.toggle('hidden', !a.hasDraco);
@@ -937,7 +1176,7 @@ function updateHints(a) {
 
 // ===== Optimization mode =====
 let activeOptimizationMode = 'default';
-const defaultOptimizationOptions = {
+const baseOptimizationOptions = {
   clean: true,
   removeUnusedNodes: true,
   removeUnusedMaterials: true,
@@ -960,9 +1199,7 @@ function applyOptimizationOptions(options) {
   document.getElementById('removeUnusedMaterials').checked = options.removeUnusedMaterials;
   document.getElementById('removeUnusedTextures').checked = options.removeUnusedTextures;
   document.getElementById('mergeEnabled').checked = options.merge;
-  document.getElementById('simplifyEnabled').checked = options.simplify;
-  document.getElementById('targetRatio').value = options.ratio;
-  document.getElementById('lockBorder').checked = options.lockBorder;
+  applySimplifyOptionFields(options);
   document.getElementById('quantizeEnabled').checked = options.quantize;
   document.getElementById('dracoEnabled').checked = options.draco;
   document.getElementById('compressionLevel').value = options.dracoLevel;
@@ -971,13 +1208,25 @@ function applyOptimizationOptions(options) {
   document.getElementById('preserveUnlitEnabled').checked = options.preserveUnlit;
 }
 
+function setOptionsEditable(editable) {
+  document.querySelectorAll('#customOptions input, #customOptions select').forEach(control => {
+    control.disabled = !editable;
+  });
+  document.getElementById('customOptions').classList.toggle('options-readonly', !editable);
+}
+
 function setOptimizationMode(mode) {
+  const modeChanged = activeOptimizationMode !== mode;
   activeOptimizationMode = mode;
   document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.optimizationMode === mode);
   });
-  document.getElementById('customOptions').classList.toggle('hidden', mode !== 'custom');
-  if (mode === 'default') applyOptimizationOptions(defaultOptimizationOptions);
+  if (mode === 'custom' && !modeChanged) {
+    setOptionsEditable(true);
+    return;
+  }
+  applyOptimizationOptions(getModelAwareDefaultOptions());
+  setOptionsEditable(mode === 'custom');
 }
 
 document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
@@ -985,7 +1234,8 @@ document.querySelectorAll('.optimization-mode-btn').forEach(btn => {
     setOptimizationMode(this.dataset.optimizationMode);
   });
 });
-applyOptimizationOptions(defaultOptimizationOptions);
+serverPreviewBtn.addEventListener('click', loadServerConvertedPreview);
+applyOptimizationOptions(getModelAwareDefaultOptions());
 setOptimizationMode(activeOptimizationMode);
 
 function renderProgressStep(step, status, label, detail = '') {
@@ -1186,7 +1436,19 @@ function getOptions() {
   o.extensions = { preserveUnlit: document.getElementById('preserveUnlitEnabled').checked };
   if (document.getElementById('cleanEnabled').checked) o.clean = { enabled: true, removeUnusedNodes: document.getElementById('removeUnusedNodes').checked, removeUnusedMaterials: document.getElementById('removeUnusedMaterials').checked, removeUnusedTextures: document.getElementById('removeUnusedTextures').checked };
   if (document.getElementById('mergeEnabled').checked) o.merge = { enabled: true };
-  if (document.getElementById('simplifyEnabled').checked) o.simplify = { enabled: true, targetRatio: parseFloat(document.getElementById('targetRatio').value), lockBorder: document.getElementById('lockBorder').checked };
+  if (document.getElementById('simplifyEnabled').checked) {
+    const targetRatioInput = document.getElementById('targetRatio');
+    const targetRatio = parseFloat(targetRatioInput.value);
+    const autoTargetRatio = parseFloat(targetRatioInput.dataset.autoTargetRatio || '');
+    const autoTargetCount = parseInt(targetRatioInput.dataset.autoTargetCount || '', 10);
+    const simplify = { enabled: true, lockBorder: document.getElementById('lockBorder').checked };
+    if (Number.isInteger(autoTargetCount) && Math.abs(targetRatio - autoTargetRatio) < 0.0005) {
+      simplify.targetCount = autoTargetCount;
+    } else {
+      simplify.targetRatio = targetRatio;
+    }
+    o.simplify = simplify;
+  }
   if (document.getElementById('quantizeEnabled').checked) o.quantize = { enabled: true };
   if (document.getElementById('dracoEnabled').checked) o.draco = { enabled: true, compressionLevel: parseInt(document.getElementById('compressionLevel').value) };
   if (document.getElementById('textureEnabled').checked) o.texture = { enabled: true, mode: document.getElementById('textureMode').value };

@@ -80,8 +80,10 @@ export function summarizeOptimizationOptions(metadata: Pick<ResultMetadata, 'opt
 
   const simplify = asRecord(options.simplify);
   if (simplify?.enabled === true) {
-    const ratio = typeof simplify.targetRatio === 'number' ? ` ${simplify.targetRatio}` : '';
-    parts.push(`网格减面${ratio}`);
+    const target = typeof simplify.targetCount === 'number'
+      ? ` ${simplify.targetCount}面`
+      : (typeof simplify.targetRatio === 'number' ? ` ${simplify.targetRatio}` : '');
+    parts.push(`网格减面${target}`);
   }
   if (isEnabled(options, 'quantize')) parts.push('顶点量化');
 
@@ -123,8 +125,11 @@ export function describeOptimizationOptions(metadata: Pick<ResultMetadata, 'opti
   lines.push(`Mesh 合并：${isEnabled(options, 'merge') ? '开启' : '关闭'}`);
 
   const simplify = asRecord(options.simplify);
+  const simplifyTarget = simplify?.targetCount
+    ? `目标面数 ${simplify.targetCount}`
+    : `目标比例 ${simplify?.targetRatio ?? '默认'}`;
   lines.push(simplify?.enabled === true
-    ? `网格减面：开启（目标比例 ${simplify.targetRatio ?? '默认'}，保留边界 ${simplify.lockBorder === true ? '是' : '否'}）`
+    ? `网格减面：开启（${simplifyTarget}，保留边界 ${simplify.lockBorder === true ? '是' : '否'}）`
     : '网格减面：关闭');
   lines.push(`顶点量化：${isEnabled(options, 'quantize') ? '开启' : '关闭'}`);
 

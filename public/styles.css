@@ -63,3 +63,5 @@ html, body { height: 100%; overflow: hidden; font-family: system-ui, -apple-syst
 
 .hidden { display: none !important; }
 .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
+.options-readonly { opacity: 0.86; }
+.options-readonly input, .options-readonly select { cursor: not-allowed; }
