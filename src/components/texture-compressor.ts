@@ -241,10 +241,7 @@ export async function compressTextures(
   let originalSize = 0;
   let compressedSize = 0;
 
-  // Register KTX2 extension if using toktx
-  if (useToktx) {
-    document.createExtension(KHRTextureBasisu).setRequired(true);
-  }
+  let ktx2TexturesProcessed = 0;
 
   for (const texture of texturesToProcess) {
     const imageData = texture.getImage();
@@ -271,7 +268,11 @@ export async function compressTextures(
           mode,
           quality
         );
+        if (ktx2TexturesProcessed === 0) {
+          document.createExtension(KHRTextureBasisu).setRequired(true);
+        }
         texture.setMimeType('image/ktx2');
+        ktx2TexturesProcessed++;
       } else {
         // Fallback to sharp (WebP compression)
         compressedData = await compressWithSharp(imageData, quality);
@@ -300,7 +301,11 @@ export async function compressTextures(
     compressionRatio,
     details,
     // @ts-ignore - Add info about compression method used
-    method: useToktx ? 'KTX2/Basis Universal (toktx)' : 'WebP (sharp fallback)',
+    method: ktx2TexturesProcessed > 0
+      ? 'KTX2/Basis Universal (toktx)'
+      : useToktx
+        ? 'Original images (toktx failed)'
+        : 'WebP (sharp fallback)',
   };
 }
 

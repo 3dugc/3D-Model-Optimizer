@@ -57,15 +57,14 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     && python3 -c "from pxr import Usd; import numpy; import trimesh; print('USD installed successfully')"
 
 ARG INSTALL_CAD_SUPPORT=true
-ARG CAD_INSTALL_TIMEOUT_SECONDS=240
+ARG CAD_INSTALL_TIMEOUT_SECONDS=1200
 
-# Install Python packages for STEP/CAD conversion (optional, allow failure)
+# Install Python packages for STEP/CAD conversion. Keep this required so Docker
+# builds fail loudly if STEP support is unavailable.
 RUN if [ "$INSTALL_CAD_SUPPORT" = "true" ]; then \
-      timeout "${CAD_INSTALL_TIMEOUT_SECONDS}s" pip3 install --break-system-packages --no-cache-dir \
+      timeout "${CAD_INSTALL_TIMEOUT_SECONDS}s" pip3 install --break-system-packages --no-cache-dir --default-timeout=600 --retries=10 \
         cadquery \
-        OCP \
-      && python3 -c "import cadquery; import OCP; print('CAD packages installed successfully')" \
-      || echo "WARNING: CAD Python packages failed to install or timed out, STEP/CAD conversion may not be available"; \
+      && python3 -c "import cadquery; import OCP; print('CAD packages installed successfully')"; \
     else \
       echo "Skipping optional CAD Python packages; STEP/CAD conversion will not be available"; \
     fi

@@ -176,7 +176,7 @@ app.use(errorHandler);
 
 // Start server
 if (require.main === module) {
-  app.listen(config.port, () => {
+  app.listen(config.port, config.host, () => {
     logger.info({ host: config.host, port: config.port }, '三维模型优化服务已启动');
     logger.info({ url: `http://${config.host}:${config.port}/api-docs` }, 'API documentation available');
     logger.info({ auth: isAuthEnabled() ? 'enabled' : 'disabled' }, 'Authentication status');

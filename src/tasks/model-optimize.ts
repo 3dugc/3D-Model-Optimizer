@@ -51,6 +51,7 @@ export const modelOptimizeTaskHandler: HeavyTaskHandler<ModelOptimizeTaskPayload
         optimizedSize: result.optimizedSize,
         compressionRatio: result.compressionRatio,
       },
+      conversion: prepared.conversion,
       errorCode: result.success ? undefined : 'OPTIMIZATION_FAILED',
       errorMessage: result.success ? undefined : 'Optimization pipeline reported failure',
     };

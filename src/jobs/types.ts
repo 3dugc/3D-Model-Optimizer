@@ -40,6 +40,7 @@ export interface CloudJob {
   chargeId?: string;
   originalFilename?: string;
   inputHash?: string;
+  inputHashKind?: 'raw-upload' | 'prepared-glb';
   optionsHash?: string;
   canonicalOptions?: Record<string, unknown>;
   conversion?: {
@@ -77,6 +78,7 @@ export interface CreateCloudJobInput {
   userId?: string;
   originalFilename?: string;
   inputHash?: string;
+  inputHashKind?: 'raw-upload' | 'prepared-glb';
   optionsHash?: string;
   canonicalOptions?: Record<string, unknown>;
   conversion?: {

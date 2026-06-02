@@ -6,6 +6,8 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import { USDZLoader } from 'three/addons/loaders/USDZLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
 
 let selectedFile = null, currentTaskId = null, currentDownloadUrl = null, modelAnalysis = null;
 let webToken = localStorage.getItem('web_token') || '';
@@ -27,8 +29,8 @@ let wireframeMode = false, viewMode = 'split';
 let leftScene, leftCamera, leftRenderer, leftControls, leftModel;
 let rightScene, rightCamera, rightRenderer, rightControls, rightModel;
 
-const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.6/';
-const KTX2_TRANSCODER_PATH = 'https://unpkg.com/three@0.160.0/examples/jsm/libs/basis/';
+const DRACO_DECODER_PATH = '/vendor/draco/1.5.6/';
+const KTX2_TRANSCODER_PATH = '/vendor/basis/three-0.160.0/';
 
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
@@ -724,6 +726,7 @@ function createGltfLoader(side) {
   const loader = new GLTFLoader();
   const dracoLoader = new DRACOLoader();
   dracoLoader.setDecoderPath(DRACO_DECODER_PATH);
+  dracoLoader.setDecoderConfig({ type: 'js' });
   loader.setDRACOLoader(dracoLoader);
 
   const renderer = side === 'left' ? leftRenderer : rightRenderer;
@@ -741,6 +744,10 @@ function loadModelFromFile(file, scene, side) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const ext = file.name.split('.').pop().toLowerCase();
+    const onError = (error) => {
+      URL.revokeObjectURL(url);
+      reject(error);
+    };
     const onLoad = (obj) => {
       let model = obj.scene || obj;
       const box = new THREE.Box3().setFromObject(model);
@@ -758,11 +765,11 @@ function loadModelFromFile(file, scene, side) {
       URL.revokeObjectURL(url); resolve(model);
     };
     if (ext === 'glb' || ext === 'gltf') {
-      createGltfLoader(side).load(url, onLoad, undefined, reject);
+      createGltfLoader(side).load(url, onLoad, undefined, onError);
     } else if (ext === 'obj') {
-      new OBJLoader().load(url, (obj) => { obj.traverse(c => { if (c.isMesh) c.material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 }); }); onLoad(obj); }, undefined, reject);
+      new OBJLoader().load(url, (obj) => { obj.traverse(c => { if (c.isMesh) c.material = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 }); }); onLoad(obj); }, undefined, onError);
     } else if (ext === 'stl') {
-      new STLLoader().load(url, (geo) => { geo.computeVertexNormals(); const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 })); const g = new THREE.Group(); g.add(m); onLoad(g); }, undefined, reject);
+      new STLLoader().load(url, (geo) => { geo.computeVertexNormals(); const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.6, metalness: 0.2 })); const g = new THREE.Group(); g.add(m); onLoad(g); }, undefined, onError);
     } else if (ext === 'usdz') {
       const reader = new FileReader();
       reader.onload = () => {
@@ -777,6 +784,10 @@ function loadModelFromFile(file, scene, side) {
       reader.readAsArrayBuffer(file);
       URL.revokeObjectURL(url);
       return;
+    } else if (ext === 'fbx') {
+      new FBXLoader().load(url, onLoad, undefined, onError);
+    } else if (ext === 'dae') {
+      new ColladaLoader().load(url, onLoad, undefined, onError);
     } else { URL.revokeObjectURL(url); reject(new Error('Format not supported for preview')); }
   });
 }
@@ -834,6 +845,29 @@ function requireLoginForAction(action) {
   return false;
 }
 
+function setPlaceholder(elementId, message) {
+  const placeholder = document.getElementById(elementId);
+  placeholder.style.display = 'flex';
+  placeholder.replaceChildren();
+  const span = document.createElement('span');
+  span.className = 'text-muted';
+  const icon = document.createElement('i');
+  icon.className = 'bi bi-eye-slash me-2';
+  span.append(icon, document.createTextNode(message));
+  placeholder.appendChild(span);
+}
+
+function displayLightModelInfo(file, ext, previewMessage) {
+  modelAnalysis = null;
+  const badgeText = ext === 'glb' ? '弹性服务器优化' : '弹性服务器转换与优化';
+  document.getElementById('summaryBadges').innerHTML = `<span class="badge text-bg-secondary me-1">${badgeText}</span>`;
+  document.getElementById('basicInfo').innerHTML = `<div class="info-row"><span class="info-label">大小</span><span class="info-value">${formatSize(file.size)}</span></div><div class="info-row"><span class="info-label">格式</span><span class="info-value">${ext.toUpperCase()}</span></div><div class="info-row"><span class="info-label">预览</span><span class="info-value">${previewMessage}</span></div>`;
+  document.getElementById('meshInfo').innerHTML = '<div class="info-row"><span class="info-label">处理</span><span class="info-value">点击优化后在弹性服务器完成转换和压缩</span></div>';
+  document.getElementById('dracoHint').classList.add('hidden');
+  document.getElementById('ktx2Hint').classList.add('hidden');
+  modelInfoSection.classList.remove('hidden');
+}
+
 // ===== Upload =====
 uploadArea.addEventListener('click', () => { if (requireLoginForAction('上传模型')) fileInput.click(); });
 uploadArea.addEventListener('dragover', (e) => { e.preventDefault(); uploadArea.classList.add('dragover'); });
@@ -858,15 +892,25 @@ async function handleFile(file) {
   fileName.textContent = `${file.name} (${formatSize(file.size)})`;
   modelInfoSection.classList.add('hidden'); optionsSection.classList.add('hidden'); resultSection.classList.add('hidden'); errorMsg.classList.add('hidden'); optimizeBtn.disabled = true;
   leftModel = clearModel(leftScene, leftModel); document.getElementById('placeholderLeft').style.display = 'none'; document.getElementById('infoLeft').textContent = '';
-  const clientPreviewFormats = ['glb', 'gltf', 'obj', 'stl', 'usdz'];
+  const clientPreviewFormats = ['glb', 'gltf', 'obj', 'stl', 'usdz', 'fbx', 'dae'];
   if (clientPreviewFormats.includes(ext)) {
-    try { leftModel = await loadModelFromFile(file, leftScene, 'left'); fitCamera(leftCamera, leftControls, leftModel); if (wireframeMode) toggleWireframe(leftModel, true); } catch (e) { console.warn('Preview not available:', e); }
+    try {
+      leftModel = await loadModelFromFile(file, leftScene, 'left');
+      fitCamera(leftCamera, leftControls, leftModel);
+      if (wireframeMode) toggleWireframe(leftModel, true);
+      displayLightModelInfo(file, ext, '本地预览可用');
+    } catch (e) {
+      console.warn('Preview not available:', e);
+      setPlaceholder('placeholderLeft', '该文件无法预览，可提交弹性服务器转换和优化');
+      displayLightModelInfo(file, ext, '本地预览失败');
+    }
   } else {
-    document.getElementById('placeholderLeft').style.display = 'flex';
-    document.getElementById('placeholderLeft').innerHTML = '<span class="text-muted"><i class="bi bi-eye-slash me-2"></i>' + ext.toUpperCase() + ' 格式不支持客户端预览，优化后可查看 GLB</span>';
+    setPlaceholder('placeholderLeft', ext.toUpperCase() + ' 格式暂不支持浏览器预览，需提交弹性服务器转换和优化');
+    displayLightModelInfo(file, ext, '不支持浏览器预览');
   }
-  rightModel = clearModel(rightScene, rightModel); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('infoRight').textContent = '';
-  await analyzeFile(file);
+  rightModel = clearModel(rightScene, rightModel); setPlaceholder('placeholderRight', '优化完成后显示结果预览'); document.getElementById('infoRight').textContent = '';
+  optionsSection.classList.remove('hidden');
+  optimizeBtn.disabled = false;
 }
 
 async function analyzeFile(file) {
@@ -1064,7 +1108,7 @@ optimizeBtn.addEventListener('click', async () => {
         rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
         if (wireframeMode) toggleWireframe(rightModel, true);
         if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
-      } catch (e) { console.warn('Could not load optimized preview:', e); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('placeholderRight').textContent = '预览不可用'; }
+      } catch (e) { console.warn('Could not load optimized preview:', e); setPlaceholder('placeholderRight', '优化结果预览不可用，可下载文件查看'); }
       return;
     }
     renderProgressStep('queue', 'done', '任务已进入弹性队列');
@@ -1083,7 +1127,7 @@ optimizeBtn.addEventListener('click', async () => {
         rightModel = await loadModelFromFile(optimizedFile, rightScene, 'right'); fitCamera(rightCamera, rightControls, rightModel);
         if (wireframeMode) toggleWireframe(rightModel, true);
         if (document.getElementById('syncCameras').checked && leftModel) { rightCamera.position.copy(leftCamera.position); rightCamera.rotation.copy(leftCamera.rotation); rightControls.target.copy(leftControls.target); rightControls.update(); }
-      } catch (e) { console.warn('Could not load optimized preview:', e); document.getElementById('placeholderRight').style.display = 'flex'; document.getElementById('placeholderRight').textContent = '预览不可用'; }
+      } catch (e) { console.warn('Could not load optimized preview:', e); setPlaceholder('placeholderRight', '优化结果预览不可用，可下载文件查看'); }
     } else if (finalResult) {
       showError(`优化失败: ${finalResult.error || '未知错误'}`);
     }

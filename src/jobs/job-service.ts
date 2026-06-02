@@ -109,6 +109,7 @@ export class CloudJobService {
       userId: input.userId,
       originalFilename: input.originalFilename || filename,
       inputHash: input.inputHash,
+      inputHashKind: input.inputHashKind,
       optionsHash: input.optionsHash,
       canonicalOptions: input.canonicalOptions,
       conversion: input.conversion,

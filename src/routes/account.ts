@@ -31,7 +31,7 @@ import { OPTIMIZATION_PRESETS } from '../models/options';
 import { requireWebUser, requireWebUserId } from '../middleware';
 import { HttpError } from '../utils/http-error';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
-import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
+import { decodeUploadFilename } from '../utils/model-input';
 import { validateOptions } from '../utils/options-validator';
 import {
   canonicalizeOptimizationOptions,
@@ -98,6 +98,11 @@ interface ModelOptimizeReport {
     optimizedSize?: number;
     compressionRatio?: number;
   };
+  conversion?: {
+    converted: boolean;
+    originalFormat: string;
+    conversionTime?: number;
+  };
   errorMessage?: string;
 }
 
@@ -137,14 +142,6 @@ function buildEffectiveOptimizeOptions(preset: PresetName | undefined, options: 
 
 function normalizePresetName(value: string | undefined): PresetName | undefined {
   return value && OPTIMIZATION_PRESETS[value as PresetName] ? value as PresetName : undefined;
-}
-
-function jobInputObject(job: CloudJob): CosObjectRef {
-  return {
-    bucket: job.inputBucket,
-    region: job.inputRegion,
-    key: job.inputKey,
-  };
 }
 
 function jobOutputObject(job: CloudJob): CosObjectRef {
@@ -187,6 +184,14 @@ function jobPayloadFilename(job: CloudJob): string | undefined {
   return typeof filename === 'string' ? filename : undefined;
 }
 
+function normalizedFileExtension(filename: string | undefined): string {
+  return filename ? path.extname(filename).toLowerCase() : '';
+}
+
+function jobOriginalExtension(job: CloudJob): string {
+  return normalizedFileExtension(job.originalFilename || jobPayloadFilename(job));
+}
+
 async function cloudOutputExists(job: CloudJob): Promise<boolean> {
   try {
     return await objectStorage.objectExists(jobOutputObject(job));
@@ -199,31 +204,15 @@ function jobOptionsHash(job: CloudJob): string {
   return hashOptimizationOptions(buildEffectiveOptimizeOptions(normalizePresetName(job.preset), job.options || {}));
 }
 
-async function computeCloudJobInputHash(job: CloudJob): Promise<string | undefined> {
-  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'optimizer-web-existing-'));
-  try {
-    const inputPath = path.join(tempDir, 'input', path.basename(job.inputKey) || 'source.glb');
-    await objectStorage.downloadObject(jobInputObject(job), inputPath);
-    const prepared = await prepareModelInput({
-      inputPath,
-      scratchDir: path.join(tempDir, 'scratch'),
-      originalFilename: job.originalFilename || jobPayloadFilename(job) || path.basename(job.inputKey),
-      allowZip: true,
-    });
-    return await hashFile(prepared.inputGlbPath);
-  } catch {
-    return undefined;
-  } finally {
-    await fs.promises.rm(tempDir, { recursive: true, force: true });
-  }
-}
-
-async function matchesWebOptimizeJob(job: CloudJob, input: { inputHash: string; optionsHash: string }): Promise<boolean> {
+async function matchesWebOptimizeJob(job: CloudJob, input: {
+  inputHash: string;
+  inputExtension: string;
+  optionsHash: string;
+}): Promise<boolean> {
   const optionsHash = job.optionsHash || jobOptionsHash(job);
   if (optionsHash !== input.optionsHash) return false;
-
-  const inputHash = job.inputHash || await computeCloudJobInputHash(job);
-  return inputHash === input.inputHash;
+  if (jobOriginalExtension(job) !== input.inputExtension) return false;
+  return job.inputHashKind === 'raw-upload' && job.inputHash === input.inputHash;
 }
 
 interface ExistingOptimizeJob {
@@ -234,6 +223,7 @@ interface ExistingOptimizeJob {
 async function findExistingWebOptimizeJob(input: {
   userId: string;
   inputHash: string;
+  inputExtension: string;
   optionsHash: string;
 }): Promise<ExistingOptimizeJob | undefined> {
   const jobs = await accountService.listPaidWebJobs(input.userId);
@@ -300,7 +290,7 @@ async function buildWebOptimizeResult(job: CloudJob): Promise<Record<string, unk
     expiresAt: retention.expiresAt,
     remainingMs: retention.remainingMs,
     downloadReady: true,
-    conversion: job.conversion,
+    conversion: job.conversion || report?.conversion,
     optionsSummary: summarizeOptimizationOptions(optionsMetadata),
     optionsDetail: describeOptimizationOptions(optionsMetadata),
     steps: [],
@@ -661,7 +651,6 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     const userId = requireWebUserId(req);
     let createdJobId: string | undefined;
-    let scratchDir: string | undefined;
 
     try {
       if (!req.file) {
@@ -673,16 +662,10 @@ router.post(
       const preset = parsePresetName(body.preset);
       const options = parseWebOptimizeOptions(body);
       const effectiveOptions = buildEffectiveOptimizeOptions(preset, options);
-      scratchDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'optimizer-web-upload-'));
-      const prepared = await prepareModelInput({
-        inputPath: req.file.path,
-        scratchDir,
-        originalFilename,
-        allowZip: true,
-      });
-      const inputHash = await hashFile(prepared.inputGlbPath);
+      const inputHash = await hashFile(req.file.path);
+      const inputExtension = normalizedFileExtension(originalFilename);
       const optionsHash = hashOptimizationOptions(effectiveOptions);
-      const existing = await findExistingWebOptimizeJob({ userId, inputHash, optionsHash });
+      const existing = await findExistingWebOptimizeJob({ userId, inputHash, inputExtension, optionsHash });
       if (existing) {
         const wallet = await accountService.getWallet(userId);
         const result = existing.reused ? await buildWebOptimizeResult(existing.job) : undefined;
@@ -711,9 +694,9 @@ router.post(
         options,
         originalFilename,
         inputHash,
+        inputHashKind: 'raw-upload',
         optionsHash,
         canonicalOptions: canonicalizeOptimizationOptions(effectiveOptions),
-        conversion: prepared.conversion,
       });
       createdJobId = paid.job.id;
 
@@ -730,10 +713,7 @@ router.post(
       }
       next(error);
     } finally {
-      await Promise.all([
-        cleanupUploadedFile(req.file),
-        scratchDir ? fs.promises.rm(scratchDir, { recursive: true, force: true }) : undefined,
-      ]);
+      await cleanupUploadedFile(req.file);
     }
   }
 );
