@@ -33,14 +33,10 @@ let currentSimplifyRecommendation = null;
 const DRACO_DECODER_PATH = '/vendor/draco/1.5.6/';
 const KTX2_TRANSCODER_PATH = '/vendor/basis/three-0.160.0/';
 
-const AUTO_SIMPLIFY_NOOP_TRIANGLES = 10000;
+const AUTO_SIMPLIFY_NOOP_TRIANGLES = 25000;
 const AUTO_SIMPLIFY_RULES = [
-  { max: 30000, target: (triangles) => Math.round(10000 + ((triangles - 10000) / 20000) * 5000) },
-  { max: 80000, target: 20000 },
-  { max: 150000, target: 30000 },
-  { max: 300000, target: 45000 },
-  { max: 600000, target: 60000 },
-  { max: Infinity, target: 80000 },
+  { max: 100000, target: (triangles) => Math.round(25000 + ((triangles - 25000) / 75000) * 25000) },
+  { max: Infinity, target: 50000 },
 ];
 
 const uploadArea = document.getElementById('uploadArea');
