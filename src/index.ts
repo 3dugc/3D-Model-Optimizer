@@ -129,17 +129,19 @@ app.get('/build-info.js', (_req: Request, res: Response) => {
 // - Static files for test UI
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Swagger UI - API Documentation (Requirements: 9.1, 9.2)
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  explorer: true,
-  customSiteTitle: '三维模型优化服务 API',
-}));
+if (config.apiDocsEnabled) {
+  // Swagger UI - API Documentation (Requirements: 9.1, 9.2)
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    explorer: true,
+    customSiteTitle: '三维模型优化服务 API',
+  }));
 
-// OpenAPI JSON specification endpoint
-app.get('/api-docs.json', (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
-});
+  // OpenAPI JSON specification endpoint
+  app.get('/api-docs.json', (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
+}
 
 // Health check endpoint
 app.get('/health', (_req: Request, res: Response) => {
@@ -178,7 +180,9 @@ app.use(errorHandler);
 if (require.main === module) {
   app.listen(config.port, config.host, () => {
     logger.info({ host: config.host, port: config.port }, '三维模型优化服务已启动');
-    logger.info({ url: `http://${config.host}:${config.port}/api-docs` }, 'API documentation available');
+    if (config.apiDocsEnabled) {
+      logger.info({ url: `http://${config.host}:${config.port}/api-docs` }, 'API documentation available');
+    }
     logger.info({ auth: isAuthEnabled() ? 'enabled' : 'disabled' }, 'Authentication status');
     for (const warning of validateConfig()) {
       logger.warn({ warning }, 'Configuration warning');

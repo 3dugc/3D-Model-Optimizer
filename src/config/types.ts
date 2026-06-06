@@ -28,6 +28,8 @@ export interface ServerConfig {
   cleanupIntervalMs: number;
   /** Whether API/web tokens may be accepted from query strings for legacy links */
   allowQueryAuthTokens: boolean;
+  /** Whether Swagger/OpenAPI documentation endpoints are enabled */
+  apiDocsEnabled: boolean;
   /** Cloud async runtime configuration */
   cloud: CloudRuntimeConfig;
   /** Shared database configuration */

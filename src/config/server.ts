@@ -21,5 +21,6 @@ export function parseServerConfig(): ServerSettings {
     ),
     cleanupIntervalMs: parsePositiveNumber(process.env.CLEANUP_INTERVAL_MS, 10 * 60 * 1000),
     allowQueryAuthTokens: parseBoolean(process.env.ALLOW_QUERY_AUTH_TOKENS, true),
+    apiDocsEnabled: parseBoolean(process.env.ENABLE_API_DOCS, process.env.NODE_ENV !== 'production'),
   };
 }
