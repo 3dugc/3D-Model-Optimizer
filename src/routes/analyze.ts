@@ -8,13 +8,12 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
+import { Document } from '@gltf-transform/core';
 import * as fs from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
-import { getDracoModules } from '../components/draco-singleton';
 import { getFileExtension } from '../components/format-converter';
+import { createGltfNodeIO } from '../components/gltf-io';
 import { createModelUpload, cleanupUploadedFile } from '../utils/model-upload';
 import { decodeUploadFilename, prepareModelInput } from '../utils/model-input';
 import { OptimizationError, ERROR_CODES } from '../models/error';
@@ -336,10 +335,7 @@ router.post('/', requireWebUser, upload.single('file'), async (req: Request, res
     }
 
     // Read and analyze GLB
-    const io = new NodeIO()
-      .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu])
-      .registerDependencies(await getDracoModules());
-
+    const io = await createGltfNodeIO();
     const document = await io.read(inputGlbPath);
     const analysis = await analyzeDocument(document, originalFilename, req.file.size);
     analysis.format = converted ? `${format} → GLB` : format;
