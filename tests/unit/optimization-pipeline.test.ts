@@ -13,7 +13,12 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu } from '@gltf-transform/extensions';
+import {
+  KHRDracoMeshCompression,
+  KHRMaterialsUnlit,
+  KHRMeshQuantization,
+  KHRTextureBasisu,
+} from '@gltf-transform/extensions';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -132,6 +137,23 @@ async function createUnlitTestGlbFile(filePath: string): Promise<void> {
 
   const io = new NodeIO()
     .registerExtensions([KHRDracoMeshCompression, KHRMaterialsUnlit, KHRTextureBasisu]);
+  await io.write(filePath, document);
+}
+
+/**
+ * Create a test GLB file requiring KHR_mesh_quantization.
+ */
+async function createMeshQuantizedTestGlbFile(filePath: string): Promise<void> {
+  const document = await createTestDocument();
+  document.createExtension(KHRMeshQuantization).setRequired(true);
+
+  const io = new NodeIO()
+    .registerExtensions([
+      KHRDracoMeshCompression,
+      KHRMaterialsUnlit,
+      KHRMeshQuantization,
+      KHRTextureBasisu,
+    ]);
   await io.write(filePath, document);
 }
 
@@ -354,6 +376,18 @@ describe('Optimization Pipeline', () => {
         expect(result.success).toBe(true);
         expect(outputJson.extensionsUsed || []).not.toContain(KHRMaterialsUnlit.EXTENSION_NAME);
         expect(outputJson.materials[0].extensions || {}).not.toHaveProperty(KHRMaterialsUnlit.EXTENSION_NAME);
+      });
+
+      it('should read inputs requiring KHR_mesh_quantization', async () => {
+        await createMeshQuantizedTestGlbFile(inputPath);
+        const options: OptimizationOptions = {
+          clean: { enabled: true },
+        };
+
+        const result = await executePipeline(inputPath, outputPath, options);
+
+        expect(result.success).toBe(true);
+        expect(fs.existsSync(outputPath)).toBe(true);
       });
 
       it('should support merge only', async () => {

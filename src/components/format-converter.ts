@@ -7,13 +7,14 @@
  * @module components/format-converter
  */
 
-import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRMaterialsUnlit } from '@gltf-transform/extensions';
+import { Document } from '@gltf-transform/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import obj2gltf from 'obj2gltf';
+
+import { createGltfNodeIO } from './gltf-io';
 
 const execFileAsync = promisify(execFile);
 
@@ -180,7 +181,7 @@ async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<v
   document.getRoot().setDefaultScene(scene);
 
   // Write GLB
-  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
+  const io = await createGltfNodeIO({ includeDracoDependencies: false });
   await io.write(outputPath, document);
 }
 
@@ -217,7 +218,7 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
   await execFileAsync('COLLADA2GLTF', ['-i', inputPath, '-o', tempOutput], { timeout: 120000 });
 
   // Convert GLTF to GLB
-  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
+  const io = await createGltfNodeIO();
   const document = await io.read(tempOutput);
   await io.write(outputPath, document);
 
@@ -481,7 +482,7 @@ async function convertOBJtoGLB(inputPath: string, outputPath: string): Promise<v
  * Convert GLTF to GLB.
  */
 async function convertGLTFtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const io = new NodeIO().registerExtensions([KHRMaterialsUnlit]);
+  const io = await createGltfNodeIO();
   const document = await io.read(inputPath);
   await io.write(outputPath, document);
 }
