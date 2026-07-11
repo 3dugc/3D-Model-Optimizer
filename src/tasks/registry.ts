@@ -1,4 +1,4 @@
-import type { HeavyTaskDescriptor, HeavyTaskHandler, HeavyTaskReport } from './types';
+import type { HeavyTaskDescriptor, HeavyTaskExecutionOptions, HeavyTaskHandler, HeavyTaskReport } from './types';
 import { modelOptimizeTaskHandler } from './model-optimize';
 
 export class TaskRegistry {
@@ -12,12 +12,17 @@ export class TaskRegistry {
     return this.handlers.has(type);
   }
 
-  async run(inputPath: string, outputPath: string, descriptor: HeavyTaskDescriptor): Promise<HeavyTaskReport> {
+  async run(
+    inputPath: string,
+    outputPath: string,
+    descriptor: HeavyTaskDescriptor,
+    execution?: HeavyTaskExecutionOptions
+  ): Promise<HeavyTaskReport> {
     const handler = this.handlers.get(descriptor.type);
     if (!handler) {
       throw new Error(`No task handler registered for taskType: ${descriptor.type}`);
     }
-    return handler.run(inputPath, outputPath, descriptor);
+    return handler.run(inputPath, outputPath, descriptor, execution);
   }
 
   listTypes(): string[] {

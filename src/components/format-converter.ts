@@ -13,6 +13,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import obj2gltf from 'obj2gltf';
+import { throwIfAborted } from '../utils/abort';
 
 import { createGltfNodeIO } from './gltf-io';
 
@@ -48,6 +49,10 @@ export interface ConversionResult {
   originalFormat: string;
   conversionTime: number;
   error?: string;
+}
+
+export interface FormatConversionExecutionOptions {
+  signal?: AbortSignal;
 }
 
 /**
@@ -134,7 +139,8 @@ function isBinarySTL(buffer: Buffer): boolean {
 /**
  * Convert STL to GLB.
  */
-async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<void> {
+async function convertSTLtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   const buffer = fs.readFileSync(inputPath);
 
   let positions: number[];
@@ -183,16 +189,18 @@ async function convertSTLtoGLB(inputPath: string, outputPath: string): Promise<v
   // Write GLB
   const io = await createGltfNodeIO({ includeDracoDependencies: false });
   await io.write(outputPath, document);
+  throwIfAborted(signal);
 }
 
 /**
  * Check if COLLADA2GLTF is available.
  */
-async function isCollada2gltfAvailable(): Promise<boolean> {
+async function isCollada2gltfAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync('which', ['COLLADA2GLTF']);
+    await execFileAsync('which', ['COLLADA2GLTF'], { signal });
     return true;
   } catch {
+    throwIfAborted(signal);
     return false;
   }
 }
@@ -200,8 +208,9 @@ async function isCollada2gltfAvailable(): Promise<boolean> {
 /**
  * Convert DAE (Collada) to GLB using COLLADA2GLTF.
  */
-async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const colladaAvailable = await isCollada2gltfAvailable();
+async function convertDAEtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const colladaAvailable = await isCollada2gltfAvailable(signal);
   
   if (!colladaAvailable) {
     throw new Error(
@@ -215,12 +224,14 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
   const outputName = path.basename(outputPath, '.glb');
   const tempOutput = path.join(outputDir, `${outputName}.gltf`);
   
-  await execFileAsync('COLLADA2GLTF', ['-i', inputPath, '-o', tempOutput], { timeout: 120000 });
+  await execFileAsync('COLLADA2GLTF', ['-i', inputPath, '-o', tempOutput], { timeout: 120000, signal });
 
   // Convert GLTF to GLB
   const io = await createGltfNodeIO();
   const document = await io.read(tempOutput);
+  throwIfAborted(signal);
   await io.write(outputPath, document);
+  throwIfAborted(signal);
 
   // Clean up temp gltf file
   if (fs.existsSync(tempOutput)) {
@@ -236,11 +247,12 @@ async function convertDAEtoGLB(inputPath: string, outputPath: string): Promise<v
 /**
  * Check if STEP conversion tools are available.
  */
-async function isStepConverterAvailable(): Promise<boolean> {
+async function isStepConverterAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync('python3', ['-c', "import cadquery; import trimesh; print('ok')"]);
+    await execFileAsync('python3', ['-c', "import cadquery; import trimesh; print('ok')"], { signal });
     return true;
   } catch {
+    throwIfAborted(signal);
     return false;
   }
 }
@@ -248,8 +260,9 @@ async function isStepConverterAvailable(): Promise<boolean> {
 /**
  * Convert STEP to GLB using CadQuery/OpenCASCADE tessellation and trimesh export.
  */
-async function convertSTEPtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const stepAvailable = await isStepConverterAvailable();
+async function convertSTEPtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const stepAvailable = await isStepConverterAvailable(signal);
   
   if (!stepAvailable) {
     throw new Error(
@@ -293,7 +306,9 @@ except Exception as e:
   const result = await execFileAsync('python3', ['-c', pythonScript, inputPath, outputPath], {
     timeout: 300000,
     maxBuffer: 50 * 1024 * 1024,
+    signal,
   });
+  throwIfAborted(signal);
   
   let parseResult;
   try {
@@ -311,8 +326,14 @@ except Exception as e:
  * Convert CAD formats (PRT, CATProduct, CATPart, ASM) to GLB via Python trimesh/cadquery.
  * These are proprietary CAD formats that require OpenCASCADE (via cadquery/OCP) for reading.
  */
-async function convertCADtoGLB(inputPath: string, outputPath: string, format: string): Promise<void> {
-  const stepAvailable = await isStepConverterAvailable();
+async function convertCADtoGLB(
+  inputPath: string,
+  outputPath: string,
+  format: string,
+  signal?: AbortSignal
+): Promise<void> {
+  throwIfAborted(signal);
+  const stepAvailable = await isStepConverterAvailable(signal);
 
   if (!stepAvailable) {
     throw new Error(
@@ -360,7 +381,9 @@ except Exception as e:
   const result = await execFileAsync('python3', ['-c', pythonScript, inputPath, outputPath], {
     timeout: 300000,
     maxBuffer: 50 * 1024 * 1024,
+    signal,
   });
+  throwIfAborted(signal);
 
   let parseResult;
   try {
@@ -377,11 +400,12 @@ except Exception as e:
 /**
  * Check if FBX2glTF is available.
  */
-async function isFbx2gltfAvailable(): Promise<boolean> {
+async function isFbx2gltfAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync('FBX2glTF', ['--help']);
+    await execFileAsync('FBX2glTF', ['--help'], { signal });
     return true;
   } catch {
+    throwIfAborted(signal);
     return false;
   }
 }
@@ -389,8 +413,9 @@ async function isFbx2gltfAvailable(): Promise<boolean> {
 /**
  * Convert FBX to GLB using FBX2glTF.
  */
-async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const fbxAvailable = await isFbx2gltfAvailable();
+async function convertFBXtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const fbxAvailable = await isFbx2gltfAvailable(signal);
   
   if (!fbxAvailable) {
     throw new Error(
@@ -406,7 +431,9 @@ async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<v
   
   await execFileAsync('FBX2glTF', ['-i', inputPath, '-o', path.join(outputDir, outputName), '--binary'], {
     timeout: 120000,
+    signal,
   });
+  throwIfAborted(signal);
 
   // FBX2glTF adds _out suffix, rename if needed
   const expectedOutput = path.join(outputDir, `${outputName}_out.glb`);
@@ -418,11 +445,12 @@ async function convertFBXtoGLB(inputPath: string, outputPath: string): Promise<v
 /**
  * Check if USD Python tools are available.
  */
-async function isUsdAvailable(): Promise<boolean> {
+async function isUsdAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync('python3', ['-c', "from pxr import Usd; print('ok')"]);
+    await execFileAsync('python3', ['-c', "from pxr import Usd; print('ok')"], { signal });
     return true;
   } catch {
+    throwIfAborted(signal);
     return false;
   }
 }
@@ -430,8 +458,9 @@ async function isUsdAvailable(): Promise<boolean> {
 /**
  * Convert USDZ to GLB using Python USD library.
  */
-async function convertUSDZtoGLB(inputPath: string, outputPath: string): Promise<void> {
-  const usdAvailable = await isUsdAvailable();
+async function convertUSDZtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+  const usdAvailable = await isUsdAvailable(signal);
   if (!usdAvailable) {
     throw new Error(
       'USDZ conversion requires usd-core Python package. ' +
@@ -449,7 +478,9 @@ async function convertUSDZtoGLB(inputPath: string, outputPath: string): Promise<
   const result = await execFileAsync('python3', [scriptPath, inputPath, outputPath], {
     timeout: 300000,
     maxBuffer: 10 * 1024 * 1024,
+    signal,
   });
+  throwIfAborted(signal);
 
   let parseResult;
   try {
@@ -471,20 +502,25 @@ async function convertUSDZtoGLB(inputPath: string, outputPath: string): Promise<
 /**
  * Convert OBJ to GLB using obj2gltf.
  */
-async function convertOBJtoGLB(inputPath: string, outputPath: string): Promise<void> {
+async function convertOBJtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   const glb = await obj2gltf(inputPath, {
     binary: true,
   });
   fs.writeFileSync(outputPath, glb);
+  throwIfAborted(signal);
 }
 
 /**
  * Convert GLTF to GLB.
  */
-async function convertGLTFtoGLB(inputPath: string, outputPath: string): Promise<void> {
+async function convertGLTFtoGLB(inputPath: string, outputPath: string, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
   const io = await createGltfNodeIO();
   const document = await io.read(inputPath);
+  throwIfAborted(signal);
   await io.write(outputPath, document);
+  throwIfAborted(signal);
 }
 
 /**
@@ -498,15 +534,19 @@ async function convertGLTFtoGLB(inputPath: string, outputPath: string): Promise<
 export async function convertToGLB(
   inputPath: string,
   outputPath: string,
-  originalFilename: string
+  originalFilename: string,
+  execution: FormatConversionExecutionOptions = {}
 ): Promise<ConversionResult> {
   const startTime = Date.now();
   const ext = getFileExtension(originalFilename);
+  const { signal } = execution;
 
   try {
+    throwIfAborted(signal);
     // If already GLB, just copy
     if (ext === '.glb') {
       fs.copyFileSync(inputPath, outputPath);
+      throwIfAborted(signal);
       return {
         success: true,
         outputPath,
@@ -518,39 +558,39 @@ export async function convertToGLB(
     // Convert based on format
     switch (ext) {
       case '.gltf':
-        await convertGLTFtoGLB(inputPath, outputPath);
+        await convertGLTFtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.obj':
-        await convertOBJtoGLB(inputPath, outputPath);
+        await convertOBJtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.stl':
-        await convertSTLtoGLB(inputPath, outputPath);
+        await convertSTLtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.fbx':
-        await convertFBXtoGLB(inputPath, outputPath);
+        await convertFBXtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.usdz':
-        await convertUSDZtoGLB(inputPath, outputPath);
+        await convertUSDZtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.dae':
-        await convertDAEtoGLB(inputPath, outputPath);
+        await convertDAEtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.step':
       case '.stp':
-        await convertSTEPtoGLB(inputPath, outputPath);
+        await convertSTEPtoGLB(inputPath, outputPath, signal);
         break;
 
       case '.prt':
       case '.catpart':
       case '.catproduct':
       case '.asm':
-        await convertCADtoGLB(inputPath, outputPath, ext.slice(1));
+        await convertCADtoGLB(inputPath, outputPath, ext.slice(1), signal);
         break;
 
       default:
@@ -564,6 +604,7 @@ export async function convertToGLB(
       conversionTime: Date.now() - startTime,
     };
   } catch (error) {
+    throwIfAborted(signal);
     return {
       success: false,
       outputPath,

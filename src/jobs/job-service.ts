@@ -9,6 +9,8 @@ import { jobStore, type JobStore } from './job-store';
 import { assertTenantObjectPrefix } from './cos-manifest';
 import { HttpError } from '../utils/http-error';
 import { isTerminalJobStatus } from './state-machine';
+import { CallbackUrlValidationError, validateCallbackUrl } from '../callbacks/callback-url-policy';
+import { resolveCallbackSigningSecret } from '../callbacks/callback-secrets';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -65,6 +67,42 @@ export class CloudJobService {
       throw new Error('tenantId is required');
     }
 
+    let callbackUrl: string | undefined;
+    if (input.callbackUrl !== undefined) {
+      try {
+        callbackUrl = validateCallbackUrl(input.callbackUrl).toString();
+      } catch (error) {
+        if (!(error instanceof CallbackUrlValidationError)) throw error;
+        throw new HttpError(400, 'INVALID_CALLBACK_URL', error.message);
+      }
+    }
+
+    if (process.env.NODE_ENV === 'production' && input.callbackSigningSecret) {
+      throw new HttpError(
+        400,
+        'INLINE_CALLBACK_SECRET_FORBIDDEN',
+        'Production jobs must reference a server-managed callbackSecretId instead of an inline signing secret.'
+      );
+    }
+    if (process.env.NODE_ENV === 'production' && callbackUrl && !input.callbackSecretId) {
+      throw new HttpError(
+        400,
+        'CALLBACK_SECRET_REQUIRED',
+        'Production callback jobs must provide a server-managed callbackSecretId.'
+      );
+    }
+    if (
+      process.env.NODE_ENV === 'production' &&
+      input.callbackSecretId &&
+      !resolveCallbackSigningSecret(input.callbackSecretId)
+    ) {
+      throw new HttpError(
+        400,
+        'UNKNOWN_CALLBACK_SECRET',
+        'The requested callbackSecretId is not configured on the server.'
+      );
+    }
+
     if (input.idempotencyKey) {
       const existing = await this.store.findByIdempotencyKey(input.tenantId, input.idempotencyKey);
       if (existing) return existing;
@@ -103,9 +141,9 @@ export class CloudJobService {
       outputRegion: outputObject.region,
       outputKey: outputObject.key,
       reportKey: reportObject.key,
-      callbackUrl: input.callbackUrl,
+      callbackUrl,
       callbackSecretId: input.callbackSecretId,
-      callbackSigningSecret: input.callbackSigningSecret,
+      callbackSigningSecret: process.env.NODE_ENV === 'production' ? undefined : input.callbackSigningSecret,
       userId: input.userId,
       originalFilename: input.originalFilename || filename,
       inputHash: input.inputHash,

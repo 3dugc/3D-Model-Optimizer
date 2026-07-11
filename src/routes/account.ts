@@ -26,6 +26,7 @@ import type { CreatePaidWebJobInput } from '../accounts/types';
 import { createObjectStorageProvider } from '../cloud/object-storage';
 import type { CosObjectRef } from '../cloud/types';
 import type { CloudJob } from '../jobs/types';
+import { toPublicCloudJob } from '../jobs/public-job';
 import type { OptimizationOptions, PresetName } from '../models/options';
 import { OPTIMIZATION_PRESETS } from '../models/options';
 import { requireWebUser, requireWebUserId } from '../middleware';
@@ -670,7 +671,7 @@ router.post(
         const wallet = await accountService.getWallet(userId);
         const result = existing.reused ? await buildWebOptimizeResult(existing.job) : undefined;
         res.status(existing.reused ? 200 : 202).json({
-          job: existing.job,
+          job: toPublicCloudJob(existing.job),
           wallet,
           existing: true,
           reused: existing.reused,
@@ -706,7 +707,7 @@ router.post(
         key: paid.job.inputKey,
       });
       const queued = await accountService.completePaidWebJobUpload(userId, paid.job.id);
-      res.status(202).json({ job: queued, wallet: paid.wallet });
+      res.status(202).json({ job: toPublicCloudJob(queued), wallet: paid.wallet });
     } catch (error) {
       if (createdJobId) {
         await accountService.cancelPaidWebJob(userId, createdJobId).catch(() => undefined);
@@ -725,7 +726,7 @@ router.post('/wallet/jobs', requireWebUser, async (req: Request, res: Response, 
       ...body,
       userId: requireWebUserId(req),
     });
-    res.status(202).json(result);
+    res.status(202).json({ ...result, job: toPublicCloudJob(result.job) });
   } catch (error) {
     next(error);
   }
@@ -737,7 +738,7 @@ router.get('/wallet/jobs/:jobId', requireWebUser, async (req: Request, res: Resp
     const job = await accountService.getPaidWebJob(userId, req.params.jobId);
     const wallet = await accountService.getWallet(userId);
     const result = await buildWebOptimizeResult(job);
-    res.json({ job, wallet, result });
+    res.json({ job: toPublicCloudJob(job), wallet, result });
   } catch (error) {
     next(error);
   }
@@ -746,7 +747,7 @@ router.get('/wallet/jobs/:jobId', requireWebUser, async (req: Request, res: Resp
 router.post('/wallet/jobs/:jobId/complete-upload', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const job = await accountService.completePaidWebJobUpload(requireWebUserId(req), req.params.jobId);
-    res.json({ job });
+    res.json({ job: toPublicCloudJob(job) });
   } catch (error) {
     next(error);
   }
@@ -776,7 +777,7 @@ router.get('/wallet/jobs/:jobId/result-file', requireWebUser, async (req: Reques
 router.post('/wallet/jobs/:jobId/cancel', requireWebUser, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const result = await accountService.cancelPaidWebJob(requireWebUserId(req), req.params.jobId);
-    res.json(result);
+    res.json({ ...result, job: toPublicCloudJob(result.job) });
   } catch (error) {
     next(error);
   }

@@ -27,8 +27,10 @@ services:
       STATE_STORE_PROVIDER: mysql
       DATABASE_URL: mysql://optimizer:optimizer@mysql:3306/optimizer
       BILLING_MODE: mock
+      API_KEY: ${API_KEY:-local-api-key-for-development-only}
+      WEB_AUTH_SECRET: ${WEB_AUTH_SECRET:-local-web-auth-secret-for-development-only}
       PAYMENT_SERVICE_URL: http://payment-service:3010
-      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-local-payment-service-key}
       HOST: 0.0.0.0
     ports:
       - "3000:3000"
@@ -49,7 +51,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3010
-      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-}
+      PAYMENT_SERVICE_API_KEY: ${PAYMENT_SERVICE_API_KEY:-local-payment-service-key}
       WECHAT_PAY_MODE: ${WECHAT_PAY_MODE:-direct}
       WECHAT_PAY_APP_ID: ${WECHAT_PAY_APP_ID:-}
       WECHAT_PAY_MCH_ID: ${WECHAT_PAY_MCH_ID:-}

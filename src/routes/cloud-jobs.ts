@@ -14,6 +14,7 @@ import {
   requireTenantId,
 } from '../jobs/cos-manifest';
 import { HttpError } from '../utils/http-error';
+import { toPublicCloudJob } from '../jobs/public-job';
 
 const router = Router();
 const objectStorage = createObjectStorageProvider();
@@ -128,7 +129,7 @@ router.post('/jobs', requireScope('jobs:create'), async (req: Request, res: Resp
         : undefined;
 
     res.status(202).json({
-      job,
+      job: toPublicCloudJob(job),
       upload:
         job.status === 'waiting_upload'
           ? {
@@ -160,7 +161,7 @@ router.get('/jobs/:jobId', requireScope('jobs:read'), async (req: Request, res: 
       return;
     }
     assertTenantAccess(req.apiPrincipal, job.tenantId);
-    res.json({ job });
+    res.json({ job: toPublicCloudJob(job) });
   } catch (error) {
     next(error);
   }
@@ -229,7 +230,7 @@ router.post('/jobs/:jobId/complete-upload', requireScope('jobs:complete'), async
     const input = req.body?.input as CosObjectRef | undefined;
     if (input) assertTenantObjectPrefix(existing.tenantId, input);
     const job = await cloudJobService.completeUpload(req.params.jobId, input);
-    res.json({ job });
+    res.json({ job: toPublicCloudJob(job) });
   } catch (error) {
     next(error);
   }
@@ -281,7 +282,7 @@ router.post('/jobs/:jobId/cancel', requireScope('jobs:cancel'), async (req: Requ
     }
     assertTenantAccess(req.apiPrincipal, existing.tenantId);
     const job = await cloudJobService.cancelJob(req.params.jobId);
-    res.json({ job });
+    res.json({ job: toPublicCloudJob(job) });
   } catch (error) {
     next(error);
   }
@@ -306,7 +307,7 @@ router.post('/cos/events', requireScope('cos:events'), async (req: Request, res:
     if (isManifestObjectKey(input.key)) {
       const manifest = parseCosJobManifest(await objectStorage.readObjectText(input), input, req.apiPrincipal);
       const job = await cloudJobService.createJob(manifest);
-      res.status(202).json({ job, source: 'manifest' });
+      res.status(202).json({ job: toPublicCloudJob(job), source: 'manifest' });
       return;
     }
 
@@ -326,7 +327,7 @@ router.post('/cos/events', requireScope('cos:events'), async (req: Request, res:
       callbackSigningSecret: body.callbackSigningSecret,
       idempotencyKey: `${input.bucket}:${input.region}:${input.key}:${input.etag || ''}`,
     });
-    res.status(202).json({ job });
+    res.status(202).json({ job: toPublicCloudJob(job) });
   } catch (error) {
     next(error);
   }
