@@ -1,7 +1,9 @@
-import { BusinessMonitor } from './business-monitor';
 import logger from '../utils/logger';
+import { assertRuntimeConfig } from '../config';
 
 async function main(): Promise<void> {
+  assertRuntimeConfig('monitor');
+  const { BusinessMonitor } = await import('./business-monitor.js');
   const monitor = new BusinessMonitor();
   const stop = () => {
     logger.info('Business monitor stopping');

@@ -87,6 +87,9 @@ export interface CloudRuntimeConfig {
   workerSpotTerminationPollMs: number;
   callbackTimeoutSeconds: number;
   callbackMaxAttempts: number;
+  callbackAllowHttp: boolean;
+  callbackAllowPrivateNetworks: boolean;
+  callbackAllowedHosts: string[];
   dispatcherProvider: 'local' | 'tencent-as';
   dispatcherIntervalSeconds: number;
   dispatcherDryRun: boolean;

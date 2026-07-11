@@ -27,8 +27,7 @@ RUN wget --tries=3 --timeout=60 -q https://github.com/KhronosGroup/KTX-Software/
     && cp -r KTX-Software-4.3.2-Linux-x86_64/lib/* /usr/local/lib/ \
     && ldconfig \
     && rm -rf KTX-Software-4.3.2-Linux-x86_64* \
-    && toktx --version \
-    || echo "WARNING: KTX-Software installation failed, texture compression will not be available"
+    && toktx --version
 
 # Download and install FBX2glTF
 RUN wget --tries=3 --timeout=60 -q https://github.com/godotengine/FBX2glTF/releases/download/v0.13.1/FBX2glTF-linux-x86_64.zip \
@@ -36,8 +35,7 @@ RUN wget --tries=3 --timeout=60 -q https://github.com/godotengine/FBX2glTF/relea
     && chmod +x FBX2glTF-linux-x86_64/FBX2glTF-linux-x86_64 \
     && mv FBX2glTF-linux-x86_64/FBX2glTF-linux-x86_64 /usr/local/bin/FBX2glTF \
     && rm -rf FBX2glTF-linux-x86_64 FBX2glTF-linux-x86_64.zip \
-    && FBX2glTF --help \
-    || echo "WARNING: FBX2glTF installation failed, FBX conversion will not be available"
+    && test -x /usr/local/bin/FBX2glTF
 
 # Download and install COLLADA2GLTF for DAE conversion
 RUN wget --tries=3 --timeout=60 -q https://github.com/KhronosGroup/COLLADA2GLTF/releases/download/v2.1.5/COLLADA2GLTF-v2.1.5-linux.zip \
@@ -45,8 +43,8 @@ RUN wget --tries=3 --timeout=60 -q https://github.com/KhronosGroup/COLLADA2GLTF/
     && chmod +x COLLADA2GLTF-bin \
     && mv COLLADA2GLTF-bin /usr/local/bin/COLLADA2GLTF \
     && rm -rf COLLADA2GLTF-v2.1.5-linux.zip \
-    && (COLLADA2GLTF --help || true) \
-    || echo "WARNING: COLLADA2GLTF installation failed, DAE conversion will not be available"
+    && test -x /usr/local/bin/COLLADA2GLTF \
+    && (COLLADA2GLTF --help || true)
 
 # Install Python packages for USDZ conversion. Keep this required so Docker
 # builds fail loudly if USDZ support is unavailable.
@@ -72,11 +70,17 @@ RUN if [ "$INSTALL_CAD_SUPPORT" = "true" ]; then \
 # Set working directory
 WORKDIR /app
 
+# Keep lockfile validation identical to GitHub Actions. The Node 20 base image
+# ships npm 10, while this repository's lockfile is maintained with npm 11.
+ARG NPM_VERSION=11.12.1
+RUN npm install --global "npm@${NPM_VERSION}" \
+    && test "$(npm --version)" = "${NPM_VERSION}"
+
 # Copy package files
 COPY package*.json ./
 
-# Install Node.js dependencies
-RUN npm install --cache /tmp/.npm-cache
+# Install the exact dependency graph committed in package-lock.json.
+RUN npm ci --cache /tmp/.npm-cache
 
 # Copy source code
 COPY . .

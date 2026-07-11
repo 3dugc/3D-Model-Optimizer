@@ -55,6 +55,9 @@ services:
       WECHAT_PAY_SUB_MCH_ID: ${WECHAT_PAY_SUB_MCH_ID:-}
       CALLBACK_TIMEOUT_SECONDS: 10
       CALLBACK_MAX_ATTEMPTS: 6
+      CALLBACK_ALLOW_HTTP: false
+      CALLBACK_ALLOWED_HOSTS: ${CALLBACK_ALLOWED_HOSTS:-}
+      CALLBACK_SIGNING_SECRETS: ${CALLBACK_SIGNING_SECRETS:-}
     volumes:
       - optimizer-data:/app/data
       - optimizer-temp:/app/temp

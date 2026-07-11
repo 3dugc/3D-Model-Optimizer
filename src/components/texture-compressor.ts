@@ -24,6 +24,7 @@ import {
 } from '../models/options';
 import { TextureStats, TextureDetail } from '../models/result';
 import { ERROR_CODES } from '../models/error';
+import { throwIfAborted } from '../utils/abort';
 
 const execFileAsync = promisify(execFile);
 
@@ -78,11 +79,12 @@ export { _TEXTURE_SLOTS as TEXTURE_SLOTS };
 /**
  * Check if toktx is available
  */
-async function isToktxAvailable(): Promise<boolean> {
+async function isToktxAvailable(signal?: AbortSignal): Promise<boolean> {
   try {
-    await execFileAsync('toktx', ['--version']);
+    await execFileAsync('toktx', ['--version'], { signal });
     return true;
   } catch {
+    throwIfAborted(signal);
     return false;
   }
 }
@@ -152,8 +154,10 @@ async function compressWithToktx(
   imageData: Uint8Array,
   mimeType: string,
   mode: 'ETC1S' | 'UASTC',
-  quality: number
+  quality: number,
+  signal?: AbortSignal
 ): Promise<Uint8Array> {
+  throwIfAborted(signal);
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ktx-'));
   const inputExt = mimeType === 'image/jpeg' ? '.jpg' : '.png';
   const inputPath = path.join(tmpDir, `input${inputExt}`);
@@ -176,7 +180,8 @@ async function compressWithToktx(
     }
 
     args.push(outputPath, inputPath);
-    await execFileAsync('toktx', args, { timeout: 60000 });
+    await execFileAsync('toktx', args, { timeout: 60000, signal });
+    throwIfAborted(signal);
 
     // Read compressed output
     const compressedData = await fs.readFile(outputPath);
@@ -192,8 +197,10 @@ async function compressWithToktx(
  */
 async function compressWithSharp(
   imageData: Uint8Array,
-  quality: number
+  quality: number,
+  signal?: AbortSignal
 ): Promise<Uint8Array> {
+  throwIfAborted(signal);
   const image = sharp(imageData);
   const metadata = await image.metadata();
 
@@ -209,6 +216,7 @@ async function compressWithSharp(
   // Convert to WebP with quality setting (map ETC1S quality 1-255 to WebP 1-100)
   const webpQuality = Math.max(1, Math.min(100, Math.round(quality / 2.55)));
   const compressed = await pipeline.webp({ quality: webpQuality }).toBuffer();
+  throwIfAborted(signal);
 
   return new Uint8Array(compressed);
 }
@@ -218,8 +226,10 @@ async function compressWithSharp(
  */
 export async function compressTextures(
   document: Document,
-  options: TextureOptions
+  options: TextureOptions,
+  signal?: AbortSignal
 ): Promise<TextureStats> {
+  throwIfAborted(signal);
   validateOptions(options);
 
   const mode = options.mode || DEFAULT_TEXTURE_OPTIONS.mode || 'ETC1S';
@@ -236,7 +246,7 @@ export async function compressTextures(
     };
   }
 
-  const useToktx = await isToktxAvailable();
+  const useToktx = await isToktxAvailable(signal);
   const details: TextureDetail[] = [];
   let originalSize = 0;
   let compressedSize = 0;
@@ -244,6 +254,7 @@ export async function compressTextures(
   let ktx2TexturesProcessed = 0;
 
   for (const texture of texturesToProcess) {
+    throwIfAborted(signal);
     const imageData = texture.getImage();
     if (!imageData) continue;
 
@@ -266,7 +277,8 @@ export async function compressTextures(
           imageData,
           texture.getMimeType() || 'image/png',
           mode,
-          quality
+          quality,
+          signal
         );
         if (ktx2TexturesProcessed === 0) {
           document.createExtension(KHRTextureBasisu).setRequired(true);
@@ -275,7 +287,7 @@ export async function compressTextures(
         ktx2TexturesProcessed++;
       } else {
         // Fallback to sharp (WebP compression)
-        compressedData = await compressWithSharp(imageData, quality);
+        compressedData = await compressWithSharp(imageData, quality, signal);
         texture.setMimeType('image/webp');
       }
 
@@ -283,6 +295,7 @@ export async function compressTextures(
       detail.compressedSize = compressedData.byteLength;
       compressedSize += compressedData.byteLength;
     } catch (error) {
+      throwIfAborted(signal);
       // If compression fails, keep original
       logger.warn({ texture: detail.name, error }, 'Failed to compress texture');
       detail.compressedSize = texOriginalSize;
@@ -291,6 +304,8 @@ export async function compressTextures(
 
     details.push(detail);
   }
+
+  throwIfAborted(signal);
 
   const compressionRatio = originalSize > 0 ? compressedSize / originalSize : 1;
 

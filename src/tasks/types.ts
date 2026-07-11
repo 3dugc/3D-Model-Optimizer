@@ -41,7 +41,16 @@ export interface HeavyTaskReport {
   errorMessage?: string;
 }
 
+export interface HeavyTaskExecutionOptions {
+  signal?: AbortSignal;
+}
+
 export interface HeavyTaskHandler<TPayload = unknown> {
   type: HeavyTaskType | string;
-  run(inputPath: string, outputPath: string, descriptor: HeavyTaskDescriptor<TPayload>): Promise<HeavyTaskReport>;
+  run(
+    inputPath: string,
+    outputPath: string,
+    descriptor: HeavyTaskDescriptor<TPayload>,
+    execution?: HeavyTaskExecutionOptions
+  ): Promise<HeavyTaskReport>;
 }

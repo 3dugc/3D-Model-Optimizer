@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { convertToGLB, getFileExtension, isSupportedFormat, SUPPORTED_FORMATS } from '../components/format-converter';
 import { ERROR_CODES, OptimizationError } from '../models/error';
 import { validateGlbBuffer } from './file-validator';
+import { throwIfAborted } from './abort';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,6 +31,7 @@ export interface ModelInputPrepareOptions {
   scratchDir: string;
   originalFilename?: string;
   allowZip?: boolean;
+  signal?: AbortSignal;
 }
 
 function assertInside(parentDir: string, candidatePath: string): void {
@@ -51,16 +53,18 @@ function assertSafeZipEntry(entryName: string): void {
   }
 }
 
-async function listZipEntries(zipPath: string): Promise<string[]> {
-  const result = await execFileAsync('unzip', ['-Z', '-1', zipPath], { maxBuffer: 1024 * 1024 });
+async function listZipEntries(zipPath: string, signal?: AbortSignal): Promise<string[]> {
+  throwIfAborted(signal);
+  const result = await execFileAsync('unzip', ['-Z', '-1', zipPath], { maxBuffer: 1024 * 1024, signal });
   return result.stdout
     .split(/\r?\n/)
     .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
-async function readZipUncompressedBytes(zipPath: string): Promise<number | undefined> {
-  const result = await execFileAsync('unzip', ['-Z', '-t', zipPath], { maxBuffer: 1024 * 1024 });
+async function readZipUncompressedBytes(zipPath: string, signal?: AbortSignal): Promise<number | undefined> {
+  throwIfAborted(signal);
+  const result = await execFileAsync('unzip', ['-Z', '-t', zipPath], { maxBuffer: 1024 * 1024, signal });
   const match = result.stdout.match(/,\s*([0-9]+)\s+bytes uncompressed/i);
   return match ? Number(match[1]) : undefined;
 }
@@ -100,11 +104,16 @@ function findModelFile(dir: string, rootDir = dir, seen = { files: 0, bytes: 0 }
   return undefined;
 }
 
-export async function extractZipAndFindModel(zipPath: string, scratchDir: string): Promise<string> {
+export async function extractZipAndFindModel(
+  zipPath: string,
+  scratchDir: string,
+  signal?: AbortSignal
+): Promise<string> {
+  throwIfAborted(signal);
   const extractDir = path.join(scratchDir, 'unzipped');
   await fs.promises.mkdir(extractDir, { recursive: true });
 
-  const entries = await listZipEntries(zipPath);
+  const entries = await listZipEntries(zipPath, signal);
   if (entries.length > MAX_ZIP_FILES) {
     throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'ZIP archive contains too many files.', {
       files: entries.length,
@@ -112,7 +121,7 @@ export async function extractZipAndFindModel(zipPath: string, scratchDir: string
     });
   }
   for (const entry of entries) assertSafeZipEntry(entry);
-  const uncompressedBytes = await readZipUncompressedBytes(zipPath);
+  const uncompressedBytes = await readZipUncompressedBytes(zipPath, signal);
   if (uncompressedBytes !== undefined && uncompressedBytes > MAX_ZIP_BYTES) {
     throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'ZIP archive uncompressed size exceeds safety limit.', {
       bytes: uncompressedBytes,
@@ -120,7 +129,11 @@ export async function extractZipAndFindModel(zipPath: string, scratchDir: string
     });
   }
 
-  await execFileAsync('unzip', ['-o', '-q', zipPath, '-d', extractDir], { maxBuffer: 1024 * 1024 });
+  await execFileAsync('unzip', ['-o', '-q', zipPath, '-d', extractDir], {
+    maxBuffer: 1024 * 1024,
+    signal,
+  });
+  throwIfAborted(signal);
   const modelPath = findModelFile(extractDir);
   if (!modelPath) {
     throw new OptimizationError(ERROR_CODES.INVALID_FILE, 'ZIP 中未找到支持的 3D 模型文件', {
@@ -147,6 +160,7 @@ export async function prepareModelInput(options: ModelInputPrepareOptions): Prom
   let modelPath = options.inputPath;
   let modelExt = ext;
 
+  throwIfAborted(options.signal);
   await fs.promises.mkdir(options.scratchDir, { recursive: true });
 
   if (ext === '.zip') {
@@ -155,7 +169,7 @@ export async function prepareModelInput(options: ModelInputPrepareOptions): Prom
         received: ext,
       });
     }
-    modelPath = await extractZipAndFindModel(options.inputPath, options.scratchDir);
+    modelPath = await extractZipAndFindModel(options.inputPath, options.scratchDir, options.signal);
     modelExt = getFileExtension(modelPath);
   }
 
@@ -172,12 +186,17 @@ export async function prepareModelInput(options: ModelInputPrepareOptions): Prom
   };
 
   if (modelExt === '.glb') {
+    throwIfAborted(options.signal);
     validateGlbFile(modelPath, path.basename(modelPath));
+    throwIfAborted(options.signal);
     return { inputGlbPath: modelPath, modelPath, modelExt, conversion };
   }
 
   const convertedGlbPath = path.join(options.scratchDir, 'converted.glb');
-  const conversionResult = await convertToGLB(modelPath, convertedGlbPath, path.basename(modelPath));
+  const conversionResult = await convertToGLB(modelPath, convertedGlbPath, path.basename(modelPath), {
+    signal: options.signal,
+  });
+  throwIfAborted(options.signal);
   if (!conversionResult.success) {
     throw new OptimizationError(
       ERROR_CODES.INVALID_FILE,

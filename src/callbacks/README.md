@@ -1,11 +1,16 @@
 # Callback Delivery
 
-This directory is reserved for signed customer callback delivery.
+This directory implements signed customer callback delivery.
 
-Planned responsibilities:
+Current responsibilities:
 
 - Build callback payloads for job terminal events.
-- Sign callbacks with tenant callback secrets.
+- Resolve server-managed signing secrets by `callbackSecretId` and sign payloads.
 - Send callbacks with timeouts.
-- Retry failed callbacks with exponential backoff.
-- Store delivery attempts and allow manual replay.
+- Reject unsafe/private callback destinations and HTTP redirects.
+- Retry transient failures with bounded exponential backoff.
+
+Still planned:
+
+- Persist delivery attempts so retries survive process restarts.
+- Provide delivery query and manual replay APIs.

@@ -6,6 +6,7 @@ import { CloudJobService } from '../../src/jobs/job-service';
 import { LocalJobStore } from '../../src/jobs/job-store';
 import type { CloudJob } from '../../src/jobs/types';
 import { parseCosJobManifest } from '../../src/jobs/cos-manifest';
+import { toPublicCloudJob } from '../../src/jobs/public-job';
 import {
   authenticateApiKey,
   canAccessTaskType,
@@ -43,13 +44,22 @@ async function tempFile(name: string): Promise<string> {
   return path.join(dir, name);
 }
 
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
+
 describe('external async API primitives', () => {
   const originalApiKey = process.env.API_KEY;
   const originalApiKeys = process.env.API_KEYS;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalCallbackSigningSecrets = process.env.CALLBACK_SIGNING_SECRETS;
 
   afterEach(() => {
-    process.env.API_KEY = originalApiKey;
-    process.env.API_KEYS = originalApiKeys;
+    restoreEnv('API_KEY', originalApiKey);
+    restoreEnv('API_KEYS', originalApiKeys);
+    restoreEnv('NODE_ENV', originalNodeEnv);
+    restoreEnv('CALLBACK_SIGNING_SECRETS', originalCallbackSigningSecrets);
   });
 
   it('authenticates scoped API keys and enforces tenant/task scopes', () => {
@@ -77,6 +87,7 @@ describe('external async API primitives', () => {
   });
 
   it('parses COS-only manifests and rejects objects outside the tenant prefix', () => {
+    const principal = { name: 'manifest-test', scopes: ['*'] };
     const manifestObject = {
       bucket: 'model-optimizer-1251022382',
       region: 'ap-nanjing',
@@ -90,7 +101,8 @@ describe('external async API primitives', () => {
         callbackUrl: 'https://example.com/callback',
         idempotencyKey: 'external-1',
       }),
-      manifestObject
+      manifestObject,
+      principal
     );
 
     expect(input).toMatchObject({
@@ -107,7 +119,8 @@ describe('external async API primitives', () => {
     expect(() =>
       parseCosJobManifest(
         JSON.stringify({ tenantId: 'tenant-a', input: 'tenants/tenant-b/source.glb' }),
-        manifestObject
+        manifestObject,
+        principal
       )
     ).toThrow('COS object must be under tenants/tenant-a/');
   });
@@ -152,6 +165,77 @@ describe('external async API primitives', () => {
 
     expect(second.id).toBe(first.id);
     expect(queue.messages).toHaveLength(1);
+  });
+
+  it('rejects an unsafe callback URL before creating a job', async () => {
+    const store = new LocalJobStore(await tempFile('jobs.json'));
+    const queue = new RecordingQueue();
+    const service = new CloudJobService(store, queue);
+
+    await expect(
+      service.createJob({
+        tenantId: 'tenant-a',
+        taskType: 'model.optimize',
+        filename: 'source.glb',
+        callbackUrl: 'https://127.0.0.1/internal/callback',
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_CALLBACK_URL' });
+    expect(await store.list()).toHaveLength(0);
+    expect(queue.messages).toHaveLength(0);
+  });
+
+  it('removes callback signing secrets from the public job representation', async () => {
+    const store = new LocalJobStore(await tempFile('jobs.json'));
+    const service = new CloudJobService(store, new RecordingQueue());
+    const job = await service.createJob({
+      tenantId: 'tenant-a',
+      taskType: 'model.optimize',
+      filename: 'source.glb',
+      callbackUrl: 'https://hooks.example.com/callback',
+      callbackSecretId: 'secret-id',
+      callbackSigningSecret: 'must-not-be-returned',
+    });
+
+    const publicJob = toPublicCloudJob(job);
+    expect(publicJob.callbackSecretId).toBe('secret-id');
+    expect(publicJob).not.toHaveProperty('callbackSigningSecret');
+    expect(job.callbackSigningSecret).toBe('must-not-be-returned');
+  });
+
+  it('rejects inline callback signing secrets in production and accepts configured secret ids', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.CALLBACK_SIGNING_SECRETS = JSON.stringify({ 'partner-managed': 'server-only-secret' });
+    const store = new LocalJobStore(await tempFile('jobs.json'));
+    const service = new CloudJobService(store, new RecordingQueue());
+
+    await expect(
+      service.createJob({
+        tenantId: 'tenant-a',
+        taskType: 'model.optimize',
+        filename: 'source.glb',
+        callbackUrl: 'https://hooks.example.com/callback',
+        callbackSigningSecret: 'inline-secret',
+      })
+    ).rejects.toMatchObject({ code: 'INLINE_CALLBACK_SECRET_FORBIDDEN' });
+
+    await expect(
+      service.createJob({
+        tenantId: 'tenant-a',
+        taskType: 'model.optimize',
+        filename: 'source.glb',
+        callbackUrl: 'https://hooks.example.com/callback',
+      })
+    ).rejects.toMatchObject({ code: 'CALLBACK_SECRET_REQUIRED' });
+
+    const job = await service.createJob({
+      tenantId: 'tenant-a',
+      taskType: 'model.optimize',
+      filename: 'source.glb',
+      callbackUrl: 'https://hooks.example.com/callback',
+      callbackSecretId: 'partner-managed',
+    });
+    expect(job.callbackSecretId).toBe('partner-managed');
+    expect(job.callbackSigningSecret).toBeUndefined();
   });
 
   it('publishes once when complete-upload moves a job from waiting_upload to queued', async () => {
