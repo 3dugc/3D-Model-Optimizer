@@ -70,6 +70,12 @@ RUN if [ "$INSTALL_CAD_SUPPORT" = "true" ]; then \
 # Set working directory
 WORKDIR /app
 
+# Keep lockfile validation identical to GitHub Actions. The Node 20 base image
+# ships npm 10, while this repository's lockfile is maintained with npm 11.
+ARG NPM_VERSION=11.12.1
+RUN npm install --global "npm@${NPM_VERSION}" \
+    && test "$(npm --version)" = "${NPM_VERSION}"
+
 # Copy package files
 COPY package*.json ./
 
