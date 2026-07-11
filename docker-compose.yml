@@ -8,7 +8,7 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=3010
-      - PAYMENT_SERVICE_API_KEY=${PAYMENT_SERVICE_API_KEY:-}
+      - PAYMENT_SERVICE_API_KEY=${PAYMENT_SERVICE_API_KEY:-local-payment-service-key}
       - WECHAT_PAY_MODE=${WECHAT_PAY_MODE:-direct}
       - WECHAT_PAY_APP_ID=${WECHAT_PAY_APP_ID:-}
       - WECHAT_PAY_MCH_ID=${WECHAT_PAY_MCH_ID:-}
@@ -51,12 +51,17 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - API_KEY=${API_KEY:-local-api-key-for-development-only}
+      - WEB_AUTH_SECRET=${WEB_AUTH_SECRET:-local-web-auth-secret-for-development-only}
       - PAYMENT_SERVICE_URL=http://payment-service:3010
-      - PAYMENT_SERVICE_API_KEY=${PAYMENT_SERVICE_API_KEY:-}
+      - PAYMENT_SERVICE_API_KEY=${PAYMENT_SERVICE_API_KEY:-local-payment-service-key}
       - INVOICE_ENABLED=${INVOICE_ENABLED:-false}
       - INVOICE_PROVIDER=${INVOICE_PROVIDER:-manual}
       - WECHAT_PAY_SUB_MCH_ID=${WECHAT_PAY_SUB_MCH_ID:-}
       - WECHAT_FAPIAO_SUB_MCH_ID=${WECHAT_FAPIAO_SUB_MCH_ID:-}
+      - CALLBACK_ALLOW_HTTP=false
+      - CALLBACK_ALLOW_PRIVATE_NETWORKS=${CALLBACK_ALLOW_PRIVATE_NETWORKS:-false}
+      - CALLBACK_ALLOWED_HOSTS=${CALLBACK_ALLOWED_HOSTS:-}
     restart: unless-stopped
     depends_on:
       payment-service:

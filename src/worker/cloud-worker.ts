@@ -14,6 +14,8 @@ import { accountService } from '../accounts/account-service';
 import logger from '../utils/logger';
 import type { WorkerHeartbeat, WorkerRuntimeConfig } from './types';
 import { createWorkerHeartbeatStore, type WorkerHeartbeatStore } from './worker-store';
+import { throwIfAborted } from '../utils/abort';
+import { JobTimeoutError, runWithJobDeadline } from './job-deadline';
 
 function objectFromJobInput(job: CloudJob): CosObjectRef {
   return {
@@ -157,17 +159,25 @@ export class CloudWorker {
 
     try {
       this.startJobLeaseRenewal(job.id);
-      await fs.promises.mkdir(path.dirname(inputPath), { recursive: true });
-      await this.storage.downloadObject(objectFromJobInput(job), inputPath);
-      const report = await this.registry.run(inputPath, outputPath, job.task);
+      const report = await runWithJobDeadline(job.id, this.runtime.jobTimeoutMs, async (signal) => {
+        await fs.promises.mkdir(path.dirname(inputPath), { recursive: true });
+        throwIfAborted(signal);
+        await this.storage.downloadObject(objectFromJobInput(job), inputPath);
+        throwIfAborted(signal);
 
-      if (!report.success) {
-        throw new Error(report.errorMessage || 'Task handler reported failure');
-      }
+        const taskReport = await this.registry.run(inputPath, outputPath, job.task, { signal });
+        throwIfAborted(signal);
+        if (!taskReport.success) {
+          throw new Error(taskReport.errorMessage || 'Task handler reported failure');
+        }
 
-      await this.storage.uploadObject(outputPath, objectFromJobOutput(job));
-      await fs.promises.writeFile(reportPath, JSON.stringify(report, null, 2));
-      await this.storage.uploadObject(reportPath, reportObjectFromJob(job));
+        await this.storage.uploadObject(outputPath, objectFromJobOutput(job));
+        throwIfAborted(signal);
+        await fs.promises.writeFile(reportPath, JSON.stringify(taskReport, null, 2));
+        await this.storage.uploadObject(reportPath, reportObjectFromJob(job));
+        throwIfAborted(signal);
+        return taskReport;
+      });
 
       const completed = await this.store.transition(job.id, 'succeeded', {
         completedAt: new Date().toISOString(),
@@ -182,11 +192,12 @@ export class CloudWorker {
       await this.maybeSendCallback(completed);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown worker error';
+      const errorCode = error instanceof JobTimeoutError ? error.code : 'WORKER_FAILED';
       const shouldRetry = job.attempts < job.maxAttempts;
       const status = shouldRetry ? 'retry_wait' : 'failed';
       const delaySeconds = Math.min(300, 2 ** Math.max(job.attempts, 0) * 10);
       const updated = await this.store.transition(job.id, status, {
-        errorCode: 'WORKER_FAILED',
+        errorCode,
         errorMessage: message,
         workerId: shouldRetry ? undefined : job.workerId,
         leaseExpiresAt: undefined,

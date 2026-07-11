@@ -15,7 +15,7 @@ A high-performance optimisation service that takes your bloated, overweight 3D m
 - **Texture Compression**: KTX2 (ETC1S/UASTC). Because uncompressed textures are a cry for help.
 - **Mesh Optimisation**: Decimation, merging, quantisation, and general tidying up of the crime scene.
 - **Presets**: Fast / Balanced / Maximum — for when you can't be bothered to think about compression levels.
-- **Real-time Progress**: SSE streaming so you can watch your model suffer step by step.
+- **Async Progress**: Elastic worker jobs with status polling so large models do not pin the web process.
 - **Security**: Helmet.js headers + API Key auth. We're not animals.
 - **Structured Logging**: Pino JSON logs. For the sort of person who finds comfort in structured data.
 - **Web UI**: Bootstrap 5 with Three.js dual-view comparison. Before and after photos, like a weight loss advert.
@@ -23,22 +23,27 @@ A high-performance optimisation service that takes your bloated, overweight 3D m
 
 ## Getting Started
 
-### Docker (Recommended, Obviously)
+### Full Async Docker Stack (Recommended)
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.cloud.yml up --build -d
 ```
 
 - Web UI: http://localhost:3000
-- API Docs: http://localhost:3000/api-docs
+- This starts MySQL, the API, payment service, Worker, and Dispatcher, so async jobs can actually complete.
+- API docs are disabled by default when `NODE_ENV=production`; set `ENABLE_API_DOCS=true` only for a private development deployment.
 - Docker image platform: `linux/amd64`. The optional USDZ/FBX/DAE/KTX toolchain relies on amd64 binaries and wheels; Apple Silicon hosts run this image through Docker emulation.
 - Optional CAD support is enabled by default but capped during image build. Use `--build-arg INSTALL_CAD_SUPPORT=false` to skip STEP/CAD packages, or tune `--build-arg CAD_INSTALL_TIMEOUT_SECONDS=240` for slower networks.
+
+The shorter `docker compose up -d` command starts only the lightweight API/payment stack. It does not include a Worker and therefore is not a complete async optimization environment.
 
 ### Local Development (For the Brave)
 
 ```bash
 npm install
 npm run dev
+# In another terminal, for async jobs:
+npm run worker
 ```
 
 > Local environment only supports GLB/GLTF/OBJ/STL. Everything else requires Docker and its menagerie of external tools. Sorry about that. Actually, no, we're not sorry.
@@ -54,9 +59,11 @@ npm run dev
 | FBX | ❌ | ✅ | FBX2glTF |
 | USDZ | ❌ | ✅ | usd-core (Python) |
 | STEP / STP | ❌ | ✅ | trimesh + cadquery |
-| PRT (Creo) | ❌ | ✅ | trimesh + OCP |
-| CATPart / CATProduct | ❌ | ✅ | trimesh + OCP |
-| ASM (Creo Assembly) | ❌ | ✅ | trimesh + OCP |
+| PRT (Creo) | ❌ | ⚠️ | External CAD translator required for native files |
+| CATPart / CATProduct | ❌ | ⚠️ | External CAD translator required for native files |
+| ASM (Creo Assembly) | ❌ | ⚠️ | External CAD translator required for native files |
+
+The built-in CadQuery path reliably handles STEP/STP. Proprietary PRT/CATIA/ASM files are accepted as inputs but require a compatible external translator unless they contain STEP-compatible data.
 
 ## API
 
@@ -68,44 +75,60 @@ curl -X POST http://localhost:3000/api/analyze -F "file=@model.glb"
 
 Find out exactly how bad things are before we intervene.
 
-### Optimise (Custom Options)
+### Optimise (Async Web Wallet Job)
 
 ```bash
-curl -X POST http://localhost:3000/api/optimize \
+curl -X POST http://localhost:3000/api/v1/account/wallet/optimize-jobs \
+  -H "Authorization: Bearer <web_token>" \
   -F "file=@model.glb" \
   -F 'options={"clean":{"enabled":true},"draco":{"enabled":true,"compressionLevel":7}}'
+```
+
+The response includes a `job.id`. Poll that job until `status` becomes `succeeded`.
+
+```bash
+curl -H "Authorization: Bearer <web_token>" \
+  http://localhost:3000/api/v1/account/wallet/jobs/{jobId}
 ```
 
 ### Optimise (Preset)
 
 ```bash
-curl -X POST http://localhost:3000/api/optimize \
+curl -X POST http://localhost:3000/api/v1/account/wallet/optimize-jobs \
+  -H "Authorization: Bearer <web_token>" \
   -F "file=@model.glb" \
   -F "preset=balanced"
 ```
 
 Available presets: `fast`, `balanced`, `maximum`. Choose your fighter.
 
-### SSE Real-time Progress
+### External Async API
 
 ```bash
-curl -X POST http://localhost:3000/api/optimize/stream \
-  -F "file=@model.glb" \
-  -F "preset=balanced"
+curl -X POST http://localhost:3000/api/v1/jobs \
+  -H "Authorization: Bearer <api_key>" \
+  -H "x-tenant-id: tenant-a" \
+  -H "Content-Type: application/json" \
+  -d '{"filename":"model.glb","taskType":"model.optimize","preset":"balanced"}'
 ```
 
-Returns a Server-Sent Events stream. Each event is another step in your model's rehabilitation.
+Use `/api/v1/jobs/{jobId}/upload-grant`, `/api/v1/jobs/{jobId}/complete-upload`, and `/api/v1/jobs/{jobId}/result-url` for direct object-storage integrations.
+
+### Legacy Sync Optimise
+
+`POST /api/optimize` and `POST /api/optimize/stream` are intentionally retained as legacy endpoints and return `410 ASYNC_OPTIMIZATION_REQUIRED`. Use the async job endpoints above.
 
 ### Download Result
 
 ```bash
-curl -O http://localhost:3000/api/download/{taskId}
+curl -H "Authorization: Bearer <web_token>" \
+  -O http://localhost:3000/api/v1/account/wallet/jobs/{jobId}/result-file
 ```
 
-### Check Status
+Retained web results are also listed at:
 
 ```bash
-curl http://localhost:3000/api/status/{taskId}
+curl -H "Authorization: Bearer <web_token>" http://localhost:3000/api/download
 ```
 
 ## The Pipeline (A Journey of Self-Improvement)
@@ -199,12 +222,12 @@ src/
 └── config/              # Swagger config
 public/                  # Web UI
 scripts/                 # Python conversion scripts
-tests/                   # Unit tests (231 of them, we're thorough)
+tests/                   # Unit and integration tests
 ```
 
 ## Cloud Architecture Roadmap
 
-The async Tencent Cloud version is specified separately so the current local service can remain stable while the cloud runtime is built.
+The async Tencent Cloud runtime is implemented alongside the local providers; the remaining production work is tracked separately.
 
 - Architecture: [docs/tencent-cloud-architecture.md](docs/tencent-cloud-architecture.md)
 - Implementation guide: [docs/heavy-task-platform-implementation.md](docs/heavy-task-platform-implementation.md)
@@ -214,7 +237,7 @@ The async Tencent Cloud version is specified separately so the current local ser
 - Local async runtime: `POST /api/v1/jobs`, `POST /api/v1/jobs/:jobId/complete-upload`, `GET /api/v1/jobs/:jobId`, `GET /api/v1/jobs/:jobId/result-url`
 - Local worker: `npm run worker` or `node dist/worker/run-worker.js`
 - Docker local cloud stack: `docker compose -f docker-compose.cloud.yml up --build`
-- Shared state store: set `STATE_STORE_PROVIDER=mysql` or `STATE_STORE_PROVIDER=postgres` with `DATABASE_URL` to make API, workers, orders and worker heartbeats use a shared database instead of local JSON files.
+- Shared state store: production should use `STATE_STORE_PROVIDER=mysql` with `DATABASE_URL=mysql://...`; Postgres remains compatible, and local JSON is only for development fallback.
 - Runtime template: `.env.cloud.example`
 
 ## Testing

@@ -50,6 +50,7 @@ import { compressDraco } from './draco-compressor';
 import { compressTextures } from './texture-compressor';
 import { repairInput, repairOutput } from './geometry-fixer';
 import { createGltfNodeIO } from './gltf-io';
+import { throwIfAborted } from '../utils/abort';
 
 /**
  * Optimization step names in execution order.
@@ -158,11 +159,13 @@ function shouldPreserveUnlit(options: OptimizationOptions): boolean {
 async function executeStep(
   step: OptimizationStepName,
   document: Document,
-  options: OptimizationOptions
+  options: OptimizationOptions,
+  signal?: AbortSignal
 ): Promise<OptimizationStepResult> {
   const startTime = Date.now();
 
   try {
+    throwIfAborted(signal);
     let stats: Record<string, unknown>;
 
     switch (step) {
@@ -200,7 +203,7 @@ async function executeStep(
         if (!options.texture) {
           throw new Error('Texture options not provided');
         }
-        stats = { ...(await compressTextures(document, options.texture)) };
+        stats = { ...(await compressTextures(document, options.texture, signal)) };
         break;
 
       case 'repair-output':
@@ -211,9 +214,11 @@ async function executeStep(
         throw new Error(`Unknown optimization step: ${step}`);
     }
 
+    throwIfAborted(signal);
     const duration = Date.now() - startTime;
     return createSuccessStepResult(step, duration, stats);
   } catch (error) {
+    throwIfAborted(signal);
     const duration = Date.now() - startTime;
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
@@ -278,11 +283,14 @@ export async function executePipeline(
   inputPath: string,
   outputPath: string,
   options: OptimizationOptions,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  signal?: AbortSignal
 ): Promise<OptimizationResult> {
   const taskId = uuidv4();
   const startTime = Date.now();
   const steps: OptimizationStepResult[] = [];
+
+  throwIfAborted(signal);
 
   // Get original file size
   const originalSize = await getFileSize(inputPath);
@@ -298,12 +306,15 @@ export async function executePipeline(
   const io = await createGltfNodeIO({
     preserveUnlit: shouldPreserveUnlit(options),
   });
+  throwIfAborted(signal);
 
   // Read the input GLB file
   let document: Document;
   try {
     document = await io.read(inputPath);
+    throwIfAborted(signal);
   } catch (error) {
+    throwIfAborted(signal);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
     throw new PipelineError(
@@ -320,6 +331,7 @@ export async function executePipeline(
 
   // Execute enabled steps in order
   for (const step of OPTIMIZATION_ORDER) {
+    throwIfAborted(signal);
     if (!isStepEnabled(step, options)) {
       continue;
     }
@@ -327,7 +339,7 @@ export async function executePipeline(
     const stepIndex = enabledSteps.indexOf(step);
     onProgress?.({ step, status: 'start', index: stepIndex, total: totalSteps });
 
-    const stepResult = await executeStep(step, document, options);
+    const stepResult = await executeStep(step, document, options, signal);
     steps.push(stepResult);
 
     if (!stepResult.success) {
@@ -351,6 +363,7 @@ export async function executePipeline(
   }
 
   // Ensure output directory exists
+  throwIfAborted(signal);
   const outputDir = path.dirname(outputPath);
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
@@ -359,7 +372,9 @@ export async function executePipeline(
   // Write the optimized GLB file
   try {
     await io.write(outputPath, document);
+    throwIfAborted(signal);
   } catch (error) {
+    throwIfAborted(signal);
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
     throw new PipelineError(

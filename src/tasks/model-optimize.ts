@@ -4,7 +4,7 @@ import { executePipeline } from '../components/optimization-pipeline';
 import { prepareModelInput } from '../utils/model-input';
 import { validateOptions } from '../utils/options-validator';
 import { OPTIMIZATION_PRESETS, OptimizationOptions, PresetName } from '../models/options';
-import type { HeavyTaskDescriptor, HeavyTaskHandler, HeavyTaskReport } from './types';
+import type { HeavyTaskDescriptor, HeavyTaskExecutionOptions, HeavyTaskHandler, HeavyTaskReport } from './types';
 
 export interface ModelOptimizeTaskPayload {
   filename?: string;
@@ -29,7 +29,8 @@ export const modelOptimizeTaskHandler: HeavyTaskHandler<ModelOptimizeTaskPayload
   async run(
     inputPath: string,
     outputPath: string,
-    descriptor: HeavyTaskDescriptor<ModelOptimizeTaskPayload>
+    descriptor: HeavyTaskDescriptor<ModelOptimizeTaskPayload>,
+    execution: HeavyTaskExecutionOptions = {}
   ): Promise<HeavyTaskReport> {
     const scratchDir = path.dirname(outputPath);
     await fs.promises.mkdir(scratchDir, { recursive: true });
@@ -38,9 +39,10 @@ export const modelOptimizeTaskHandler: HeavyTaskHandler<ModelOptimizeTaskPayload
       scratchDir,
       originalFilename: descriptor.payload.filename || path.basename(inputPath),
       allowZip: true,
+      signal: execution.signal,
     });
     const options = resolveOptions(descriptor.payload);
-    const result = await executePipeline(prepared.inputGlbPath, outputPath, options);
+    const result = await executePipeline(prepared.inputGlbPath, outputPath, options, undefined, execution.signal);
 
     return {
       taskType: descriptor.type,

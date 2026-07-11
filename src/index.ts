@@ -33,8 +33,14 @@ import {
   invoiceRouter,
   metricsRouter,
 } from './routes';
-import { errorHandler, notFoundHandler, authMiddleware, isAuthEnabled } from './middleware';
-import { config, validateConfig } from './config';
+import {
+  errorHandler,
+  notFoundHandler,
+  authMiddleware,
+  isAuthEnabled,
+} from './middleware';
+import { assertProductionApiAuthConfigured } from './middleware/auth';
+import { assertRuntimeConfig, config, validateConfig } from './config';
 import { cleanupOldFiles } from './utils/storage';
 import logger from './utils/logger';
 
@@ -176,17 +182,19 @@ app.use(notFoundHandler);
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-// Start server
-if (require.main === module) {
+function startServer(): void {
+  assertProductionApiAuthConfigured();
+  assertRuntimeConfig('api');
+  for (const warning of validateConfig()) {
+    logger.warn({ warning }, 'Configuration warning');
+  }
+
   app.listen(config.port, config.host, () => {
     logger.info({ host: config.host, port: config.port }, '三维模型优化服务已启动');
     if (config.apiDocsEnabled) {
       logger.info({ url: `http://${config.host}:${config.port}/api-docs` }, 'API documentation available');
     }
     logger.info({ auth: isAuthEnabled() ? 'enabled' : 'disabled' }, 'Authentication status');
-    for (const warning of validateConfig()) {
-      logger.warn({ warning }, 'Configuration warning');
-    }
 
     // Auto-cleanup temp files older than 1 hour, every 10 minutes
     const CLEANUP_INTERVAL = config.cleanupIntervalMs;
@@ -204,6 +212,19 @@ if (require.main === module) {
     }, CLEANUP_INTERVAL);
     logger.info('Temp file auto-cleanup enabled (1h max age, 10min interval)');
   });
+}
+
+// Start server
+if (require.main === module) {
+  try {
+    startServer();
+  } catch (error) {
+    logger.fatal(
+      { error: error instanceof Error ? error.message : String(error) },
+      'Refusing to start with invalid production configuration'
+    );
+    process.exitCode = 1;
+  }
 }
 
 export default app;

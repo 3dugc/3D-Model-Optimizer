@@ -41,6 +41,10 @@ export function parseCloudConfig(): CloudRuntimeConfig {
     workerSpotTerminationPollMs: parsePositiveNumber(process.env.WORKER_SPOT_TERMINATION_POLL_MS, 5 * 1000),
     callbackTimeoutSeconds: parsePositiveNumber(process.env.CALLBACK_TIMEOUT_SECONDS, 10),
     callbackMaxAttempts: parsePositiveNumber(process.env.CALLBACK_MAX_ATTEMPTS, 6),
+    callbackAllowHttp:
+      process.env.NODE_ENV !== 'production' && parseBoolean(process.env.CALLBACK_ALLOW_HTTP, false),
+    callbackAllowPrivateNetworks: parseBoolean(process.env.CALLBACK_ALLOW_PRIVATE_NETWORKS, false),
+    callbackAllowedHosts: parseCsv(process.env.CALLBACK_ALLOWED_HOSTS),
     dispatcherProvider:
       process.env.DISPATCHER_PROVIDER === 'tencent-as' || process.env.CLOUD_PROVIDER === 'tencent'
         ? 'tencent-as'

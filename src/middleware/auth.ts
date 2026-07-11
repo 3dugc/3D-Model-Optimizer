@@ -19,6 +19,26 @@ interface ApiKeyDefinition {
   taskTypes?: string[];
 }
 
+const API_KEY_DEFINITION_FIELDS = new Set([
+  'name',
+  'key',
+  'scopes',
+  'tenantId',
+  'tenantIds',
+  'taskTypes',
+]);
+const INSECURE_API_KEY_PLACEHOLDERS = new Set(['change-me', 'replace-me', 'changeme', 'your-api-key']);
+
+export class ApiAuthConfigurationError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'ApiAuthConfigurationError';
+    this.code = code;
+  }
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -27,11 +47,27 @@ declare global {
   }
 }
 
-export const getApiKey = (): string | undefined => process.env.API_KEY;
+export const getApiKey = (): string | undefined => {
+  const key = process.env.API_KEY;
+  return key && key.trim().length > 0 ? key : undefined;
+};
+
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+function isAnonymousApiAllowed(): boolean {
+  const value = process.env.ALLOW_ANONYMOUS_API;
+  return !!value && ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
 
 export const isAuthEnabled = (): boolean => {
   const key = getApiKey();
-  return (!!key && key.length > 0) || parseApiKeyDefinitions().length > 0;
+  const definitions = parseApiKeyDefinitions();
+  const configured = !!key || definitions.length > 0;
+  // Production remains fail-closed even when startup validation is bypassed by
+  // a custom launcher. ALLOW_ANONYMOUS_API is an explicit escape hatch.
+  return (isProduction() && !isAnonymousApiAllowed()) || configured;
 };
 
 function getRequestToken(req: Request): string | undefined {
@@ -61,32 +97,104 @@ function safeEquals(a: string, b: string): boolean {
 
 export function parseApiKeyDefinitions(raw: string | undefined = process.env.API_KEYS): ApiKeyDefinition[] {
   if (!raw) return [];
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isApiKeyDefinition);
+    parsed = JSON.parse(raw) as unknown;
   } catch {
-    return [];
+    throw new ApiAuthConfigurationError('INVALID_API_KEYS_JSON', 'API_KEYS must be valid JSON.');
   }
+
+  if (!Array.isArray(parsed)) {
+    throw new ApiAuthConfigurationError('INVALID_API_KEYS_TYPE', 'API_KEYS must be a JSON array.');
+  }
+
+  const definitions = parsed.map((value, index) => parseApiKeyDefinition(value, index));
+  const uniqueKeys = new Set(definitions.map((definition) => definition.key));
+  if (uniqueKeys.size !== definitions.length) {
+    throw new ApiAuthConfigurationError('DUPLICATE_API_KEY', 'API_KEYS must not contain duplicate keys.');
+  }
+  return definitions;
 }
 
-function isApiKeyDefinition(value: unknown): value is ApiKeyDefinition {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<ApiKeyDefinition>;
-  return typeof candidate.key === 'string' && candidate.key.length > 0;
+function parseApiKeyDefinition(value: unknown, index: number): ApiKeyDefinition {
+  const invalid = (message: string): never => {
+    throw new ApiAuthConfigurationError('INVALID_API_KEY_DEFINITION', `API_KEYS[${index}] ${message}`);
+  };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid('must be an object.');
+
+  const candidate = value as Record<string, unknown>;
+  const unknownField = Object.keys(candidate).find((field) => !API_KEY_DEFINITION_FIELDS.has(field));
+  if (unknownField) invalid(`contains unsupported field "${unknownField}".`);
+  if (typeof candidate.key !== 'string' || candidate.key.trim().length === 0) {
+    invalid('key must be a non-empty string.');
+  }
+  if (candidate.name !== undefined && (typeof candidate.name !== 'string' || candidate.name.trim().length === 0)) {
+    invalid('name must be a non-empty string when provided.');
+  }
+  if (candidate.tenantId !== undefined &&
+      (typeof candidate.tenantId !== 'string' || candidate.tenantId.trim().length === 0)) {
+    invalid('tenantId must be a non-empty string when provided.');
+  }
+
+  const scopes = parseStringArray(candidate.scopes, index, 'scopes');
+  const tenantIds = parseStringArray(candidate.tenantIds, index, 'tenantIds');
+  const taskTypes = parseStringArray(candidate.taskTypes, index, 'taskTypes');
+  return {
+    key: candidate.key as string,
+    name: candidate.name as string | undefined,
+    scopes,
+    tenantId: candidate.tenantId as string | undefined,
+    tenantIds,
+    taskTypes,
+  };
+}
+
+function parseStringArray(value: unknown, index: number, field: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim().length === 0)) {
+    throw new ApiAuthConfigurationError(
+      'INVALID_API_KEY_DEFINITION',
+      `API_KEYS[${index}] ${field} must be an array of non-empty strings.`
+    );
+  }
+  return [...new Set(value as string[])];
 }
 
 function normalizePrincipal(definition: ApiKeyDefinition): ApiPrincipal {
   const tenantIds = [...(definition.tenantIds || []), ...(definition.tenantId ? [definition.tenantId] : [])];
   return {
     name: definition.name || 'api-key',
-    scopes: definition.scopes?.length ? definition.scopes : ['*'],
-    tenantIds: tenantIds.length ? [...new Set(tenantIds)] : undefined,
-    taskTypes: definition.taskTypes?.length ? definition.taskTypes : undefined,
+    scopes: definition.scopes === undefined ? ['*'] : definition.scopes,
+    tenantIds:
+      definition.tenantIds === undefined && definition.tenantId === undefined
+        ? undefined
+        : [...new Set(tenantIds)],
+    taskTypes: definition.taskTypes,
   };
 }
 
+export function assertProductionApiAuthConfigured(): void {
+  const definitions = parseApiKeyDefinitions();
+  if (!isProduction() || isAnonymousApiAllowed()) return;
+  const legacyKey = getApiKey();
+  const insecureKey = [legacyKey, ...definitions.map((definition) => definition.key)]
+    .filter((value): value is string => Boolean(value))
+    .find((value) => INSECURE_API_KEY_PLACEHOLDERS.has(value.trim().toLowerCase()));
+  if (insecureKey) {
+    throw new ApiAuthConfigurationError(
+      'INSECURE_API_KEY',
+      'Production API authentication must not use a documented placeholder key.'
+    );
+  }
+  if (legacyKey || definitions.length > 0) return;
+  throw new ApiAuthConfigurationError(
+    'API_AUTH_REQUIRED',
+    'Production API authentication requires API_KEY or API_KEYS. Set ALLOW_ANONYMOUS_API=true only for an intentional public deployment.'
+  );
+}
+
 export function authenticateApiKey(token: string | undefined): ApiPrincipal | undefined {
+  const definitions = parseApiKeyDefinitions();
   if (!token) return undefined;
 
   const legacy = getApiKey();
@@ -94,23 +202,23 @@ export function authenticateApiKey(token: string | undefined): ApiPrincipal | un
     return { name: 'legacy-api-key', scopes: ['*'], legacy: true };
   }
 
-  const definition = parseApiKeyDefinitions().find((item) => safeEquals(token, item.key));
+  const definition = definitions.find((item) => safeEquals(token, item.key));
   return definition ? normalizePrincipal(definition) : undefined;
 }
 
 export function hasScope(principal: ApiPrincipal | undefined, scope: string): boolean {
-  if (!principal) return !isAuthEnabled();
+  if (!principal) return false;
   return principal.scopes.includes('*') || principal.scopes.includes(scope);
 }
 
 export function canAccessTenant(principal: ApiPrincipal | undefined, tenantId: string): boolean {
-  if (!principal || principal.scopes.includes('*')) return true;
-  return !principal.tenantIds?.length || principal.tenantIds.includes(tenantId);
+  if (!principal) return false;
+  return principal.tenantIds === undefined || principal.tenantIds.includes(tenantId);
 }
 
 export function canAccessTaskType(principal: ApiPrincipal | undefined, taskType: string): boolean {
-  if (!principal || principal.scopes.includes('*')) return true;
-  return !principal.taskTypes?.length || principal.taskTypes.includes(taskType);
+  if (!principal) return false;
+  return principal.taskTypes === undefined || principal.taskTypes.includes(taskType);
 }
 
 export const authMiddleware = (req: Request, res: Response, next: NextFunction): void => {
