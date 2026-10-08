@@ -15,7 +15,7 @@
  */
 
 import { Document, NodeIO } from '@gltf-transform/core';
-import { KHRDracoMeshCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
+import { EXTTextureWebP, KHRDracoMeshCompression, KHRTextureBasisu } from '@gltf-transform/extensions';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -294,7 +294,7 @@ export async function executePipeline(
 
   // Create NodeIO with extensions
   const io = new NodeIO()
-    .registerExtensions([KHRDracoMeshCompression, KHRTextureBasisu])
+    .registerExtensions([KHRDracoMeshCompression, KHRTextureBasisu, EXTTextureWebP])
     .registerDependencies(await getDracoModules());
 
   // Read the input GLB file
@@ -356,6 +356,12 @@ export async function executePipeline(
 
   // Write the optimized GLB file
   try {
+    // glTF-Transform selects WebP when reading optional WebP+PNG/JPEG inputs
+    // and cannot retain their fallback source. Normalize the final document
+    // after cleanup: any retained WebP therefore requires WebP support.
+    if (document.getRoot().listTextures().some(texture => texture.getMimeType() === 'image/webp')) {
+      document.createExtension(EXTTextureWebP).setRequired(true);
+    }
     await io.write(outputPath, document);
   } catch (error) {
     const errorMessage =

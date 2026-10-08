@@ -9,7 +9,7 @@
  */
 
 import { Document, Texture } from '@gltf-transform/core';
-import { KHRTextureBasisu } from '@gltf-transform/extensions';
+import { EXTTextureWebP, KHRTextureBasisu } from '@gltf-transform/extensions';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs/promises';
@@ -281,6 +281,10 @@ export async function compressTextures(
       }
 
       texture.setImage(compressedData);
+      if (!useToktx) {
+        // No PNG/JPEG fallback image is retained, so WebP support is required.
+        document.createExtension(EXTTextureWebP).setRequired(true);
+      }
       detail.compressedSize = compressedData.byteLength;
       compressedSize += compressedData.byteLength;
     } catch (error) {
